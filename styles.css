@@ -1,0 +1,30 @@
+#app_toolbar {
+    background-color: #e0e0e0;
+    border-bottom: 1px solid #cccccc;
+    min-height: 24px;
+}
+
+#left_pane {
+    background-color: #2c2c2c;
+    border-right: 1px solid #1a1a1a;
+}
+
+#right_pane {
+    background-color: #3d3d3d;
+}
+
+#right_pane label {
+    color: #ffffff;
+    font-weight: bold;
+}
+
+/* Make the paned divider more visible */
+paned>handle {
+    background-color: #1a1a1a;
+    min-width: 6px;
+    min-height: 6px;
+}
+
+paned>handle:hover {
+    background-color: #007bff;
+}
