@@ -1,32 +1,19 @@
-#include <gtkmm.h>
-#include <vte/vte.h>
-#include <iostream>
-
-#include <filesystem>
-#include <vector>
-#include <thread>
-#include <mutex>
-#include <nlohmann/json.hpp>
 #include "Connections.h"
+#include <iostream>
+#include <filesystem>
+#include <thread>
 
 
 using json = nlohmann::json;
 
-// Helper to execute command
-static std::string exec_command(const std::string& cmd) {
-    std::array<char, 128> buffer;
-    std::string result;
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
-    if (!pipe) return "";
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
-        result += buffer.data();
-    }
-    return result;
-}
-
 class MainWindow : public Gtk::Window {
 public:
+    virtual ~MainWindow() {
+        ConnectionManager::cleanup();
+    }
+
     MainWindow() : m_width(800), m_height(600) {
+
         ConnectionManager::init();
 
         set_title("IAP Remote Desktop & SSH Manager");
@@ -145,6 +132,9 @@ public:
                     crow[m_columns.m_col_project_id] = proj.id;
                     crow[m_columns.m_col_port] = conn.port;
                     crow[m_columns.m_col_conn_type] = conn.type;
+                    crow[m_columns.m_col_username] = conn.username;
+                    crow[m_columns.m_col_password] = conn.password;
+
                 }
 
             }
@@ -166,11 +156,10 @@ public:
         }
     }
 
-
-
     void on_add_organization_click() {
         // Simple dialog to fetch and add organization
-        std::string output = exec_command("gcloud organizations list --format=\"json\" --quiet");
+        std::string output = ConnectionManager::exec_command("gcloud organizations list --format=\"json\" --quiet");
+
         if (output.empty()) {
             Gtk::MessageDialog md(*this, "Error", false, Gtk::MESSAGE_ERROR);
             md.set_secondary_text("Could not fetch organizations from gcloud.");
@@ -272,10 +261,11 @@ public:
 
         bool fetch_done = false;
         std::string projects_json;
-        std::thread fetch_thread([this, org_id, &projects_json, &fetch_done]() {
-            projects_json = fetch_organization_projects(org_id);
+        std::thread fetch_thread([org_id, &projects_json, &fetch_done]() {
+            projects_json = ConnectionManager::exec_command("gcloud asset search-all-resources --asset-types=cloudresourcemanager.googleapis.com/Project --scope=organizations/" + org_id + " --format=json --quiet");
             fetch_done = true;
         });
+
 
         auto conn = Glib::signal_timeout().connect([&, refProjectModel, spinner, loading_box, loading_label, ok_button]() {
             if (fetch_done) {
@@ -337,153 +327,9 @@ public:
         std::string project_id = row[m_columns.m_col_id];
         std::string project_name = row[m_columns.m_col_name];
 
-        Gtk::Dialog dialog("Add Connections to " + project_name, *this, true);
-        dialog.set_default_size(650, 500);
-
-        Gtk::Box* content = dialog.get_content_area();
-        content->set_spacing(10);
-        content->set_margin_start(12);
-        content->set_margin_end(12);
-        content->set_margin_top(12);
-        content->set_margin_bottom(12);
-
-
-        auto loading_box = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 10));
-        auto spinner = Gtk::manage(new Gtk::Spinner());
-        auto loading_label = Gtk::manage(new Gtk::Label("Fetching compute instances..."));
-        loading_box->pack_start(*spinner, Gtk::PACK_SHRINK);
-        loading_box->pack_start(*loading_label, Gtk::PACK_SHRINK);
-        content->pack_start(*loading_box, Gtk::PACK_SHRINK);
-
-        // Selection Columns
-        class InstanceColumns : public Gtk::TreeModel::ColumnRecord {
-        public:
-            InstanceColumns() { add(m_col_selected); add(m_col_name); add(m_col_zone); add(m_col_status); }
-            Gtk::TreeModelColumn<bool> m_col_selected;
-            Gtk::TreeModelColumn<std::string> m_col_name;
-            Gtk::TreeModelColumn<std::string> m_col_zone;
-            Gtk::TreeModelColumn<std::string> m_col_status;
-        };
-        InstanceColumns inst_cols;
-
-        auto sw = Gtk::manage(new Gtk::ScrolledWindow());
-        auto inst_list = Gtk::manage(new Gtk::TreeView());
-        auto refInstModel = Gtk::ListStore::create(inst_cols);
-        inst_list->set_model(refInstModel);
-        inst_list->append_column_editable("", inst_cols.m_col_selected);
-
-        auto n_cell = Gtk::manage(new Gtk::CellRendererText());
-        auto n_col = Gtk::manage(new Gtk::TreeViewColumn("Name", *n_cell));
-        n_col->add_attribute(n_cell->property_text(), inst_cols.m_col_name);
-        n_col->set_sort_column(inst_cols.m_col_name);
-        inst_list->append_column(*n_col);
-
-        auto z_cell = Gtk::manage(new Gtk::CellRendererText());
-        auto z_col = Gtk::manage(new Gtk::TreeViewColumn("Zone", *z_cell));
-        z_col->add_attribute(z_cell->property_text(), inst_cols.m_col_zone);
-        z_col->set_sort_column(inst_cols.m_col_zone);
-        inst_list->append_column(*z_col);
-
-        sw->add(*inst_list);
-        sw->set_min_content_height(250);
-        content->pack_start(*sw, Gtk::PACK_EXPAND_WIDGET);
-
-        // Connection Type and Port
-        auto settings_box = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 15));
-
-        auto type_box = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 5));
-        type_box->pack_start(*Gtk::manage(new Gtk::Label("Type:")), Gtk::PACK_SHRINK);
-        Gtk::ComboBoxText type_combo;
-        type_combo.append("SSH", "SSH");
-        type_combo.append("RDP", "RDP");
-        type_combo.set_active(0);
-        type_box->pack_start(type_combo, Gtk::PACK_SHRINK);
-
-        auto port_box = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 5));
-        port_box->pack_start(*Gtk::manage(new Gtk::Label("Port:")), Gtk::PACK_SHRINK);
-        Gtk::Entry port_entry;
-        port_entry.set_text("22");
-        port_box->pack_start(port_entry, Gtk::PACK_SHRINK);
-
-        type_combo.signal_changed().connect([&type_combo, &port_entry]() {
-            if (type_combo.get_active_text() == "SSH") port_entry.set_text("22");
-            else if (type_combo.get_active_text() == "RDP") port_entry.set_text("3389");
-        });
-
-        settings_box->pack_start(*type_box, Gtk::PACK_SHRINK);
-        settings_box->pack_start(*port_box, Gtk::PACK_SHRINK);
-        content->pack_start(*settings_box, Gtk::PACK_SHRINK);
-
-        dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
-        Gtk::Button* ok_button = (Gtk::Button*)dialog.add_button("OK", Gtk::RESPONSE_OK);
-        ok_button->set_sensitive(false);
-
-        dialog.show_all_children();
-        spinner->start();
-
-        bool fetch_done = false;
-        std::string inst_json;
-        std::thread fetch_thread([this, project_id, &inst_json, &fetch_done]() {
-            inst_json = exec_command("gcloud compute instances list --project=" + project_id + " --format=json --quiet");
-            fetch_done = true;
-        });
-
-        auto conn = Glib::signal_timeout().connect([&, refInstModel, spinner, loading_box, loading_label, ok_button]() {
-            if (fetch_done) {
-                spinner->stop();
-                if (!inst_json.empty()) {
-                    try {
-                        auto j = json::parse(inst_json);
-                        for (const auto& inst : j) {
-                            auto r = *(refInstModel->append());
-                            r[inst_cols.m_col_selected] = false;
-                            r[inst_cols.m_col_name] = inst.value("name", "");
-                            std::string zone_url = inst.value("zone", "");
-                            r[inst_cols.m_col_zone] = (zone_url.find_last_of('/') != std::string::npos) ? zone_url.substr(zone_url.find_last_of('/') + 1) : zone_url;
-                            r[inst_cols.m_col_status] = inst.value("status", "");
-                        }
-                        if (refInstModel->children().empty()) {
-                            loading_label->set_text("No instances found.");
-                        } else {
-                            loading_box->hide();
-                            ok_button->set_sensitive(true);
-                        }
-                    } catch (...) {
-                        loading_label->set_text("Error parsing instances.");
-                    }
-                } else {
-                    loading_label->set_text("Failed to fetch instances.");
-                }
-                return false;
-            }
-            return true;
-        }, 100);
-
-        if (dialog.run() == Gtk::RESPONSE_OK) {
-            std::vector<ConnectionInfo> connections;
-            std::string type = type_combo.get_active_text();
-            int port = std::stoi(port_entry.get_text());
-
-            auto children = refInstModel->children();
-            for (auto it = children.begin(); it != children.end(); ++it) {
-                Gtk::TreeModel::Row r = *it;
-                if (r[inst_cols.m_col_selected]) {
-                    ConnectionInfo ci;
-                    ci.id = r[inst_cols.m_col_name];
-                    ci.name = ci.id;
-                    ci.zone = r[inst_cols.m_col_zone];
-                    ci.port = port;
-                    ci.type = type;
-                    ci.projectId = project_id;
-                    connections.push_back(ci);
-                }
-            }
-            ConnectionManager::save_connections(project_id, connections);
+        ConnectionManager::manage_add_connection(*this, project_id, project_name, [this]() {
             load_tree_data();
-        }
-
-        if (fetch_thread.joinable()) fetch_thread.join();
-        conn.disconnect();
+        });
     }
 
     void clear_session_area() {
@@ -500,72 +346,38 @@ public:
         std::string type = row[m_columns.m_col_type];
         if (type != "connection") return;
 
-        std::string conn_type = row[m_columns.m_col_conn_type];
-        if (conn_type == "SSH") {
-            std::string instance_name = row[m_columns.m_col_id];
-            std::string project_id = row[m_columns.m_col_project_id];
-            std::string zone = row[m_columns.m_col_zone];
-            
-            // Clear right box
-            auto children = m_right_box.get_children();
-            for (auto child : children) m_right_box.remove(*child);
+        ConnectionInfo ci;
+        ci.id = row[m_columns.m_col_id];
+        ci.name = ci.id;
+        ci.zone = row[m_columns.m_col_zone];
+        ci.projectId = row[m_columns.m_col_project_id];
+        ci.type = row[m_columns.m_col_conn_type];
+        ci.port = row[m_columns.m_col_port];
+        ci.username = row[m_columns.m_col_username];
+        ci.password = row[m_columns.m_col_password];
 
-            // Create VTE Terminal
-            VteTerminal* terminal = VTE_TERMINAL(vte_terminal_new());
-            Gtk::Widget* term_widget = Glib::wrap(GTK_WIDGET(terminal));
-            
-            m_right_box.pack_start(*term_widget, Gtk::PACK_EXPAND_WIDGET);
-            term_widget->show();
 
-            // Connect exit signal
-            g_signal_connect(terminal, "child-exited", G_CALLBACK(+[](VteTerminal*, gint, gpointer data) {
-                MainWindow* self = static_cast<MainWindow*>(data);
-                self->clear_session_area();
-            }), this);
-
-            // Spawn SSH command
-            char* argv[] = {
-                (char*)"gcloud", (char*)"compute", (char*)"ssh",
-                (char*)instance_name.c_str(),
-                (char*)"--project", (char*)project_id.c_str(),
-                (char*)"--zone", (char*)zone.c_str(),
-                (char*)"--tunnel-through-iap",
-                NULL
-            };
-
-            vte_terminal_spawn_async(terminal,
-                VTE_PTY_DEFAULT,
-                NULL, // working directory
-                argv,
-                NULL, // envv
-                (GSpawnFlags)0,
-                NULL, NULL, // child setup
-                NULL, // child pid
-                -1, // timeout
-                NULL, // cancellable
-                NULL, NULL // callback
-            );
+        if (ci.type == "SSH") {
+            ConnectionManager::open_ssh_session(m_right_box, ci, [this]() {
+                clear_session_area();
+            });
+        } else if (ci.type == "RDP") {
+            ConnectionManager::open_rdp_session(m_right_box, ci, [this]() {
+                clear_session_area();
+            });
         }
+
     }
-
-
-
-
-
-    std::string fetch_organization_projects(const std::string& org_id) {
-        std::string cmd = "gcloud asset search-all-resources --asset-types=cloudresourcemanager.googleapis.com/Project --scope=organizations/" + org_id + " --format=json --quiet";
-        return exec_command(cmd);
-    }
-
-
 
     void on_preferences_click() {
         std::cout << "Preferences clicked" << std::endl;
     }
 
     void on_quit_click() {
+        ConnectionManager::cleanup();
         hide();
     }
+
 
 protected:
     // Tree Model Columns
@@ -574,7 +386,7 @@ protected:
         ModelColumns() { 
             add(m_col_id); add(m_col_name); add(m_col_type); 
             add(m_col_zone); add(m_col_port); add(m_col_project_id);
-            add(m_col_conn_type);
+            add(m_col_conn_type); add(m_col_username); add(m_col_password);
         }
         Gtk::TreeModelColumn<std::string> m_col_id;
         Gtk::TreeModelColumn<std::string> m_col_name;
@@ -583,6 +395,8 @@ protected:
         Gtk::TreeModelColumn<int> m_col_port;
         Gtk::TreeModelColumn<std::string> m_col_project_id;
         Gtk::TreeModelColumn<std::string> m_col_conn_type;
+        Gtk::TreeModelColumn<std::string> m_col_username;
+        Gtk::TreeModelColumn<std::string> m_col_password;
     };
 
 
@@ -600,7 +414,6 @@ protected:
     Gtk::TreeView m_treeview;
     Gtk::MenuItem* m_add_project_item;
     Gtk::MenuItem* m_add_connection_item;
-
 
     Gtk::ScrolledWindow m_scrolled_window;
 
