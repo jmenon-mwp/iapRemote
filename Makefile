@@ -9,7 +9,7 @@ CXXFLAGS = -std=c++17 -Wall \
 LDFLAGS = `pkg-config gtkmm-3.0 --libs` \
           `$(PKG_CONFIG) google_cloud_cpp_iap --libs`
 
-TARGET = iap-remote
+TARGET = iapRemote
 SRCS = main.cpp Connections.cpp
 OBJS = $(SRCS:.cpp=.o)
 
