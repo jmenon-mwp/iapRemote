@@ -3,11 +3,12 @@ VCPKG_PKG_CONFIG_PATH = /opt/vcpkg/installed/x64-linux/lib/pkgconfig
 PKG_CONFIG = PKG_CONFIG_PATH=$(VCPKG_PKG_CONFIG_PATH) pkg-config
 
 CXXFLAGS = -std=c++17 -Wall \
-           `pkg-config gtkmm-3.0 --cflags` \
+           `pkg-config gtkmm-3.0 vte-2.91 --cflags` \
            `$(PKG_CONFIG) google_cloud_cpp_iap --cflags`
 
-LDFLAGS = `pkg-config gtkmm-3.0 --libs` \
+LDFLAGS = `pkg-config gtkmm-3.0 vte-2.91 --libs` \
           `$(PKG_CONFIG) google_cloud_cpp_iap --libs`
+
 
 TARGET = iapRemote
 SRCS = main.cpp Connections.cpp
