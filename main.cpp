@@ -2,6 +2,8 @@
 #include <iostream>
 #include <filesystem>
 #include <thread>
+#include <map>
+
 
 
 using json = nlohmann::json;
@@ -84,12 +86,15 @@ public:
 
         // Right Box (Session Container)
         m_right_box.set_name("right_pane");
-        m_right_box.add(*Gtk::manage(new Gtk::Label("Session Area")));
+        m_notebook.set_scrollable(true);
+        m_notebook.set_tab_pos(Gtk::POS_TOP);
+        m_right_box.pack_start(m_notebook, Gtk::PACK_EXPAND_WIDGET);
 
         // Add to paned
         m_paned.pack1(m_left_box, false, false);
         m_paned.pack2(m_right_box, true, true);
         m_paned.set_position(250);
+
 
         // Load CSS for styling
         auto css_provider = Gtk::CssProvider::create();
@@ -332,13 +337,6 @@ public:
         });
     }
 
-    void clear_session_area() {
-        auto children = m_right_box.get_children();
-        for (auto child : children) m_right_box.remove(*child);
-        m_right_box.add(*Gtk::manage(new Gtk::Label("Session Area")));
-        m_right_box.show_all();
-    }
-
     void on_connection_double_clicked(const Gtk::TreeModel::Path& path, Gtk::TreeViewColumn* column) {
         auto iter = m_refTreeModel->get_iter(path);
         if (!iter) return;
@@ -356,18 +354,43 @@ public:
         ci.username = row[m_columns.m_col_username];
         ci.password = row[m_columns.m_col_password];
 
-
-        if (ci.type == "SSH") {
-            ConnectionManager::open_ssh_session(m_right_box, ci, [this]() {
-                clear_session_area();
-            });
-        } else if (ci.type == "RDP") {
-            ConnectionManager::open_rdp_session(m_right_box, ci, [this]() {
-                clear_session_area();
-            });
+        std::string key = ci.projectId + "/" + ci.id;
+        
+        if (m_connection_to_tab.count(key)) {
+            int page_num = m_notebook.page_num(*m_connection_to_tab[key]);
+            if (page_num >= 0) {
+                m_notebook.set_current_page(page_num);
+                return;
+            } else {
+                 m_connection_to_tab.erase(key);
+            }
         }
 
+        Gtk::Box* session_box = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_VERTICAL));
+        session_box->show();
+        
+        std::string tab_label = row[m_columns.m_col_name];
+        int page_num = m_notebook.append_page(*session_box, tab_label);
+
+        m_connection_to_tab[key] = session_box;
+        m_notebook.show_all();
+        m_notebook.set_current_page(page_num);
+
+        if (ci.type == "SSH") {
+            ConnectionManager::open_ssh_session(*session_box, ci, [this, key, session_box]() {
+                int idx = m_notebook.page_num(*session_box);
+                if (idx >= 0) m_notebook.remove_page(idx);
+                m_connection_to_tab.erase(key);
+            });
+        } else if (ci.type == "RDP") {
+            ConnectionManager::open_rdp_session(*session_box, ci, [this, key, session_box]() {
+                int idx = m_notebook.page_num(*session_box);
+                if (idx >= 0) m_notebook.remove_page(idx);
+                m_connection_to_tab.erase(key);
+            });
+        }
     }
+
 
     void on_preferences_click() {
         std::cout << "Preferences clicked" << std::endl;
@@ -426,7 +449,10 @@ protected:
     Gtk::Paned m_paned;
     Gtk::Box m_left_box{Gtk::ORIENTATION_VERTICAL};
     Gtk::Box m_right_box{Gtk::ORIENTATION_VERTICAL};
+    Gtk::Notebook m_notebook;
+    std::map<std::string, Gtk::Widget*> m_connection_to_tab;
 };
+
 
 int main(int argc, char* argv[]) {
     auto app = Gtk::Application::create(argc, argv, "com.iap.remote");
