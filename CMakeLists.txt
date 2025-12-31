@@ -10,15 +10,9 @@ if(UNIX AND NOT APPLE)
 endif()
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(GTKMM REQUIRED gtkmm-3.0)
-pkg_check_modules(VTE REQUIRED vte-2.91)
-pkg_check_modules(GCP_IAP REQUIRED google_cloud_cpp_iap)
-
-include_directories(
-    ${GTKMM_INCLUDE_DIRS}
-    ${VTE_INCLUDE_DIRS}
-    ${GCP_IAP_INCLUDE_DIRS}
-)
+pkg_check_modules(GTKMM REQUIRED IMPORTED_TARGET gtkmm-3.0)
+pkg_check_modules(VTE REQUIRED IMPORTED_TARGET vte-2.91)
+pkg_check_modules(GCP_IAP REQUIRED IMPORTED_TARGET google_cloud_cpp_iap)
 
 add_executable(iapRemote 
     main.cpp 
@@ -28,10 +22,13 @@ add_executable(iapRemote
 
 target_link_libraries(iapRemote
     PRIVATE
-    ${GTKMM_LIBRARIES}
-    ${VTE_LIBRARIES}
-    ${GCP_IAP_LIBRARIES}
+    PkgConfig::GTKMM
+    PkgConfig::VTE
+    PkgConfig::GCP_IAP
 )
+
+
+
 
 # Platform specific configurations
 if(WIN32)

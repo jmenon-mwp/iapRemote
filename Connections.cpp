@@ -16,6 +16,7 @@
 
 
 
+
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
@@ -569,12 +570,10 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
             session_container.show_all();
 
             auto on_realize_logic = [&session_container, local_port, socket_widget, tunnel_pid, exit_cb_shared, username, password]() {
-
                 uint64_t xid = socket_widget->get_id();
                 std::cerr << "DEBUG: Socket realized. XID: " << xid << ". Launching xfreerdp." << std::endl;
                 
                 Glib::signal_timeout().connect_once([&session_container, local_port, xid, tunnel_pid, exit_cb_shared, username, password]() {
-
                     std::cerr << "DEBUG: Launching xfreerdp now..." << std::endl;
                     std::vector<std::string> rdp_argv = {
                         "xfreerdp", 
@@ -585,7 +584,7 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
                         "+home-drive",
                         "/u:" + username, 
                         "/p:" + password,
-                        "/sec:nla", // Explicitly use NLA
+                        "/sec:nla", 
                         "/audio-mode:0"
                     };
 
@@ -601,9 +600,7 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
                             }
                             std::cerr << "DEBUG: RDP process exited. Raw status: " << status << ", Exit code: " << exit_code << std::endl;
                             
-                            // 0: Success, 12: ERRINFO_LOGOFF_BY_USER, 13: ERRINFO_DISCONNECTED_BY_USER
                             bool failure = (exit_code != 0 && exit_code != 12 && exit_code != 13);
-                            
                             if (failure) {
                                 auto label = Gtk::manage(new Gtk::Label("RDP Connection failed. Check your credentials and network settings."));
                                 label->set_line_wrap();
@@ -625,7 +622,6 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
                             }
                         }, rdp_pid);
 
-
                     } catch (const std::exception& e) {
                         std::cerr << "DEBUG: Failed to launch xfreerdp: " << e.what() << std::endl;
                         ::kill(tunnel_pid, SIGTERM);
@@ -642,6 +638,8 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
 
             return false; 
         }
+
+
         return true; 
     }, 500);
 }
