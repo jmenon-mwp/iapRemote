@@ -263,6 +263,256 @@ void ConnectionManager::save_connections(const std::string& projectId, const std
     outfile << updated.dump(4);
 }
 
+std::string ConnectionManager::get_preferences_config_path() {
+    std::string home = std::getenv("HOME");
+    return home + "/.config/iapRemote/preferences.json";
+}
+
+Preferences ConnectionManager::load_preferences() {
+    Preferences prefs;
+    std::ifstream file(get_preferences_config_path());
+    if (file.is_open()) {
+        try {
+            json j;
+            file >> j;
+            prefs.save_window_size = j.value("save_window_size", false);
+            prefs.window_width = j.value("window_width", 800);
+            prefs.window_height = j.value("window_height", 600);
+            prefs.sidebar_width = j.value("sidebar_width", 250);
+        } catch (...) {}
+    }
+    return prefs;
+}
+
+void ConnectionManager::save_preferences(const Preferences& prefs) {
+    json j;
+    j["save_window_size"] = prefs.save_window_size;
+    j["window_width"] = prefs.window_width;
+    j["window_height"] = prefs.window_height;
+    j["sidebar_width"] = prefs.sidebar_width;
+
+    std::ofstream file(get_preferences_config_path());
+    file << j.dump(4);
+}
+
+void ConnectionManager::delete_connection(const std::string& projectId, const std::string& connectionId) {
+    std::ifstream file(get_connections_config_path());
+    if (!file.is_open()) return;
+
+    json j;
+    try { file >> j; } catch(...) { return; }
+    file.close();
+
+    json updated = json::array();
+    for (const auto& item : j) {
+        if (item.value("projectId", "") == projectId && item.value("id", "") == connectionId) {
+            continue; // Skip this one
+        }
+        updated.push_back(item);
+    }
+
+    std::ofstream outfile(get_connections_config_path());
+    outfile << updated.dump(4);
+}
+
+void ConnectionManager::delete_project(const std::string& projectId) {
+    // 1. Delete associated connections
+    std::ifstream cfile(get_connections_config_path());
+    if (cfile.is_open()) {
+        json cj;
+        try { cfile >> cj; } catch(...) { cj = json::array(); }
+        cfile.close();
+
+        json c_updated = json::array();
+        for (const auto& item : cj) {
+            if (item.value("projectId", "") == projectId) continue;
+            c_updated.push_back(item);
+        }
+        std::ofstream coutfile(get_connections_config_path());
+        coutfile << c_updated.dump(4);
+    }
+
+    // 2. Delete the project itself
+    std::ifstream pfile(get_projects_config_path());
+    if (!pfile.is_open()) return;
+
+    json pj;
+    try { pfile >> pj; } catch(...) { return; }
+    pfile.close();
+
+    json p_updated = json::array();
+    for (const auto& item : pj) {
+        if (item.value("id", "") == projectId) continue;
+        p_updated.push_back(item);
+    }
+
+    std::ofstream poutfile(get_projects_config_path());
+    poutfile << p_updated.dump(4);
+}
+
+void ConnectionManager::delete_organization(const std::string& orgId) {
+    // 1. Identify projects to delete
+    std::vector<std::string> projectsToDelete;
+    std::ifstream pfile(get_projects_config_path());
+    if (pfile.is_open()) {
+        json pj;
+        try { pfile >> pj; } catch(...) { pj = json::array(); }
+        pfile.close();
+
+        json p_updated = json::array();
+        for (const auto& item : pj) {
+            if (item.value("organizationId", "") == orgId) {
+                projectsToDelete.push_back(item.value("id", ""));
+            } else {
+                p_updated.push_back(item);
+            }
+        }
+
+        // Save updated projects (removed)
+        std::ofstream poutfile(get_projects_config_path());
+        poutfile << p_updated.dump(4);
+    }
+
+    // 2. Delete connections for those projects
+    if (!projectsToDelete.empty()) {
+        std::ifstream cfile(get_connections_config_path());
+        if (cfile.is_open()) {
+            json cj;
+            try { cfile >> cj; } catch(...) { cj = json::array(); }
+            cfile.close();
+
+            json c_updated = json::array();
+            for (const auto& item : cj) {
+                std::string pid = item.value("projectId", "");
+                bool del = false;
+                for (const auto& dpid : projectsToDelete) {
+                    if (pid == dpid) { del = true; break; }
+                }
+                if (!del) c_updated.push_back(item);
+            }
+            std::ofstream coutfile(get_connections_config_path());
+            coutfile << c_updated.dump(4);
+        }
+    }
+
+    // 3. Delete the organization itself
+    std::ifstream ofile(get_config_path());
+    if (!ofile.is_open()) return;
+
+    json oj;
+    try { ofile >> oj; } catch(...) { return; }
+    ofile.close();
+
+    json o_updated = json::array();
+    for (const auto& item : oj) {
+        if (item.value("id", "") == orgId) continue;
+        o_updated.push_back(item);
+    }
+
+    std::ofstream ooutfile(get_config_path());
+    ooutfile << o_updated.dump(4);
+}
+
+// Checks if the user is authenticated by listing organizations.
+// Returns true if the command succeeds (exit code 0), false otherwise.
+bool ConnectionManager::verify_auth() {
+    int ret = system("gcloud auth print-access-token > /dev/null 2>&1");
+    // WEXITSTATUS requires <sys/wait.h> which is already included.
+    // If ret == 0, then we successfully got a token.
+    if (ret == -1) return false;
+    return (WEXITSTATUS(ret) == 0);
+}
+
+// Initiates the gcloud authentication flow via a terminal dialog.
+void ConnectionManager::authenticate_user(Gtk::Window& parent, std::function<void()> on_success) {
+    Gtk::Dialog dialog("Authenticate with Google Cloud", parent, true);
+    dialog.set_default_size(600, 400);
+
+    Gtk::Box* content = dialog.get_content_area();
+    VteTerminal* terminal = VTE_TERMINAL(vte_terminal_new());
+    Gtk::Widget* term_widget = Glib::wrap(GTK_WIDGET(terminal));
+
+    content->pack_start(*term_widget, Gtk::PACK_EXPAND_WIDGET);
+    term_widget->show();
+
+    dialog.add_button("Close", Gtk::RESPONSE_CLOSE);
+
+    char* argv_browser[] = {
+        (char*)"gcloud", (char*)"auth", (char*)"login",
+        NULL
+    };
+
+    vte_terminal_spawn_async(terminal,
+        VTE_PTY_DEFAULT,
+        NULL,
+        argv_browser,
+        NULL,
+        (GSpawnFlags)0,
+        NULL, NULL,
+        NULL,
+        -1,
+        NULL,
+        NULL, NULL
+    );
+
+    dialog.run();
+
+    if (verify_auth()) {
+        if (on_success) on_success();
+    } else {
+        Gtk::MessageDialog err(parent, "Authentication failed or incomplete.", false, Gtk::MESSAGE_WARNING);
+        err.run();
+    }
+}
+
+void ConnectionManager::configure_default_project(Gtk::Window& parent, std::function<void()> on_done) {
+    Gtk::Dialog dialog("Set Default Project", parent, true);
+    dialog.set_default_size(400, 180);
+
+    auto content = dialog.get_content_area();
+    content->set_spacing(10);
+    content->set_margin_top(15);
+    content->set_margin_bottom(15);
+    content->set_margin_start(15);
+    content->set_margin_end(15);
+
+    auto label = Gtk::manage(new Gtk::Label("Enter the Project ID to set as default and quota project:"));
+    label->set_line_wrap(true);
+    auto entry = Gtk::manage(new Gtk::Entry());
+    entry->set_placeholder_text("my-gcp-project-id");
+
+    content->pack_start(*label, Gtk::PACK_SHRINK);
+    content->pack_start(*entry, Gtk::PACK_SHRINK);
+
+    dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
+    auto ok_btn = dialog.add_button("Set Default", Gtk::RESPONSE_OK);
+    ok_btn->set_sensitive(false);
+
+    // Enable button only when text is present
+    entry->signal_changed().connect([entry, ok_btn]() {
+        ok_btn->set_sensitive(entry->get_text_length() > 0);
+    });
+
+    dialog.show_all_children();
+
+    if (dialog.run() == Gtk::RESPONSE_OK) {
+        std::string selected_pid = entry->get_text();
+        if (!selected_pid.empty()) {
+            // Set default project
+            exec_command("gcloud config set project " + selected_pid + " --quiet");
+            // Set quota project
+            exec_command("gcloud auth application-default set-quota-project " + selected_pid + " --quiet");
+
+            Gtk::MessageDialog info(parent, "Project configured.", false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK);
+            info.set_secondary_text("Default project and quota project set to: " + selected_pid);
+            info.run();
+        }
+    }
+
+    if (on_done) on_done();
+}
+
+
 // Launches a dialog to discover and add new compute instances.
 // Fetches instances from GCP and allows the user to save them locally.
 void ConnectionManager::manage_add_connection(Gtk::Window& parent, const std::string& project_id, const std::string& project_name, std::function<void()> on_save) {

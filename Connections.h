@@ -31,6 +31,13 @@ struct ConnectionInfo {
     std::string password;
 };
 
+struct Preferences {
+    bool save_window_size = false;
+    int window_width = 800;
+    int window_height = 600;
+    int sidebar_width = 250;
+};
+
 class ConnectionManager {
 public:
     // Initializes system configurations and directory structures.
@@ -58,6 +65,20 @@ public:
     // Protects credentials before writing them to the config file.
     static void save_connections(const std::string& projectId, const std::vector<ConnectionInfo>& connections);
 
+    // Deletes an organization and its associated projects/connections.
+    static void delete_organization(const std::string& orgId);
+    // Deletes a project and its associated connections.
+    static void delete_project(const std::string& projectId);
+    // Deletes a specific connection from a project.
+    static void delete_connection(const std::string& projectId, const std::string& connectionId);
+
+    // Checks if the user is authenticated by listing organizations.
+    static bool verify_auth();
+    // Initiates the gcloud authentication flow via a terminal dialog.
+    static void authenticate_user(Gtk::Window& parent, std::function<void()> on_success);
+    // Prompts user to select a default project and configures gcloud.
+    static void configure_default_project(Gtk::Window& parent, std::function<void()> on_done);
+
     // UI Related methods
     // UI helper to browse and register new cloud compute instances.
     // Interacts with gcloud to list and save discovered instance connections.
@@ -78,6 +99,13 @@ public:
     // Returns the storage path for detailed connection records.
     // Stores individual instance IDs, zones, and credentials.
     static std::string get_connections_config_path();
+    // Returns the storage path for user preferences.
+    static std::string get_preferences_config_path();
+
+    // Loads user preferences from disk.
+    static Preferences load_preferences();
+    // Saves user preferences to disk.
+    static void save_preferences(const Preferences& prefs);
 
     // Safe shutdown and resource release for background processes.
     // Terminates all active tunnels and monitored child processes.

@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <thread>
 #include <map>
+#include <regex>
 
 using json = nlohmann::json;
 
@@ -75,6 +76,7 @@ public:
 
         m_treeview.get_selection()->signal_changed().connect(sigc::mem_fun(*this, &MainWindow::on_tree_selection_changed));
         m_treeview.signal_row_activated().connect(sigc::mem_fun(*this, &MainWindow::on_connection_double_clicked));
+        m_treeview.signal_button_press_event().connect(sigc::mem_fun(*this, &MainWindow::on_tree_button_press_event), false);
 
         m_scrolled_window.add(m_treeview);
 
@@ -92,7 +94,14 @@ public:
         // Add to paned
         m_paned.pack1(m_left_box, false, false);
         m_paned.pack2(m_right_box, true, true);
-        m_paned.set_position(250);
+
+        m_prefs = ConnectionManager::load_preferences();
+        if (m_prefs.save_window_size) {
+            set_default_size(m_prefs.window_width, m_prefs.window_height);
+            m_paned.set_position(m_prefs.sidebar_width);
+        } else {
+            m_paned.set_position(250);
+        }
 
         // Load CSS for styling
         auto css_provider = Gtk::CssProvider::create();
@@ -233,12 +242,49 @@ public:
         loading_box->pack_start(*loading_label, Gtk::PACK_SHRINK);
         content->pack_start(*loading_box, Gtk::PACK_SHRINK);
 
+        auto filter_entry = Gtk::manage(new Gtk::SearchEntry());
+        filter_entry->set_placeholder_text("Filter projects (Regex)...");
+        content->pack_start(*filter_entry, Gtk::PACK_SHRINK);
+
         auto sw = Gtk::manage(new Gtk::ScrolledWindow());
         auto project_list = Gtk::manage(new Gtk::TreeView());
         auto refProjectModel = Gtk::ListStore::create(m_proj_cols);
+        auto filter_model = Gtk::TreeModelFilter::create(refProjectModel);
 
-        project_list->set_model(refProjectModel);
-        project_list->append_column_editable("", m_proj_cols.m_col_selected);
+        filter_model->set_visible_func([this, filter_entry](const Gtk::TreeModel::const_iterator& iter) -> bool {
+            std::string text = filter_entry->get_text();
+            if (text.empty()) return true;
+            try {
+                std::regex re(text, std::regex::icase);
+                Gtk::TreeModel::Row row = *iter;
+                std::string name = row[m_proj_cols.m_col_name];
+                std::string id = row[m_proj_cols.m_col_id];
+                return std::regex_search(name, re) || std::regex_search(id, re);
+            } catch (...) {
+                return true;
+            }
+        });
+
+        filter_entry->signal_search_changed().connect([filter_model](){ filter_model->refilter(); });
+
+        project_list->set_model(filter_model);
+
+        auto toggle_cell = Gtk::manage(new Gtk::CellRendererToggle());
+        toggle_cell->signal_toggled().connect([this, filter_model, refProjectModel](const Glib::ustring& path_str) {
+            Gtk::TreePath path(path_str);
+            auto filter_iter = filter_model->get_iter(path);
+            if (filter_iter) {
+                auto child_iter = filter_model->convert_iter_to_child_iter(filter_iter);
+                if (child_iter) {
+                    bool current = (*child_iter)[m_proj_cols.m_col_selected];
+                    (*child_iter)[m_proj_cols.m_col_selected] = !current;
+                }
+            }
+        });
+
+        auto toggle_col = Gtk::manage(new Gtk::TreeViewColumn("", *toggle_cell));
+        toggle_col->add_attribute(toggle_cell->property_active(), m_proj_cols.m_col_selected);
+        project_list->append_column(*toggle_col);
 
         auto name_cell = Gtk::manage(new Gtk::CellRendererText());
         auto name_col = Gtk::manage(new Gtk::TreeViewColumn("Project Name", *name_cell));
@@ -400,14 +446,180 @@ public:
     // Placeholder for application-wide settings such as theme or default terminal behavior.
     // Currently defined as a hook for future customization features.
     void on_preferences_click() {
-        // Implementation for preferences
+        Gtk::Dialog dialog("Preferences", *this, true);
+
+        auto content = dialog.get_content_area();
+        content->set_spacing(15);
+        content->set_margin_top(15);
+        content->set_margin_bottom(15);
+        content->set_margin_start(15);
+        content->set_margin_end(15);
+
+        Gtk::CheckButton check_save_window("Save window size on exit");
+        check_save_window.set_active(m_prefs.save_window_size);
+        content->pack_start(check_save_window, Gtk::PACK_SHRINK);
+
+        dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
+        dialog.add_button("OK", Gtk::RESPONSE_OK);
+
+        dialog.show_all_children();
+
+        if (dialog.run() == Gtk::RESPONSE_OK) {
+            m_prefs.save_window_size = check_save_window.get_active();
+            // We save immediately so the flag is updated.
+            // Width/Height will be updated on exit, but we can save current state now just in case.
+            if (m_prefs.save_window_size) {
+                 int w, h;
+                 get_size(w, h);
+                 m_prefs.window_width = w;
+                 m_prefs.window_height = h;
+                 m_prefs.sidebar_width = m_paned.get_position();
+            }
+            ConnectionManager::save_preferences(m_prefs);
+        }
     }
 
     // Gracefully shuts down the application and its background processes.
     // Ensures the main window is hidden and resources are released.
     void on_quit_click() {
+        if (m_prefs.save_window_size) {
+             int w, h;
+             get_size(w, h);
+             m_prefs.window_width = w;
+             m_prefs.window_height = h;
+             m_prefs.sidebar_width = m_paned.get_position();
+             ConnectionManager::save_preferences(m_prefs);
+        }
         ConnectionManager::cleanup();
         hide();
+    }
+
+    bool on_tree_button_press_event(GdkEventButton* event) {
+        if (event->type == GDK_BUTTON_PRESS && event->button == 3) {
+            Gtk::TreeModel::Path path;
+            Gtk::TreeViewColumn* column;
+            int cell_x, cell_y;
+
+            bool row_exists = m_treeview.get_path_at_pos((int)event->x, (int)event->y, path, column, cell_x, cell_y);
+
+            auto menu = Gtk::manage(new Gtk::Menu());
+
+            if (row_exists) {
+                m_treeview.get_selection()->select(path);
+                auto iter = m_refTreeModel->get_iter(path);
+                if (iter) {
+                    Gtk::TreeModel::Row row = *iter;
+                    std::string type = row[m_columns.m_col_type];
+
+                    if (type == "org") {
+                        auto add_proj = Gtk::manage(new Gtk::MenuItem("Add Project"));
+                        add_proj->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_add_project_click));
+                        menu->append(*add_proj);
+
+                        auto del_org = Gtk::manage(new Gtk::MenuItem("Delete Organization"));
+                        del_org->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_delete_organization_click));
+                        menu->append(*del_org);
+
+                        auto auth_item = Gtk::manage(new Gtk::MenuItem("Authenticate"));
+                        auth_item->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_authenticate_click));
+                        menu->append(*auth_item);
+                    } else if (type == "project") {
+                        auto add_conn = Gtk::manage(new Gtk::MenuItem("Add Connection"));
+                        add_conn->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_add_connection_click));
+                        menu->append(*add_conn);
+
+                        auto del_proj = Gtk::manage(new Gtk::MenuItem("Delete Project"));
+                        del_proj->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_delete_project_click));
+                        menu->append(*del_proj);
+                    } else if (type == "connection") {
+                        auto connect_item = Gtk::manage(new Gtk::MenuItem("Connect"));
+                        connect_item->signal_activate().connect([this, path, column]() {
+                            on_connection_double_clicked(path, column);
+                        });
+                        menu->append(*connect_item);
+
+                        auto del_conn = Gtk::manage(new Gtk::MenuItem("Delete Connection"));
+                        del_conn->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_delete_connection_click));
+                        menu->append(*del_conn);
+                    }
+                }
+            } else {
+                auto add_org = Gtk::manage(new Gtk::MenuItem("Add Organization"));
+                add_org->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_add_organization_click));
+                menu->append(*add_org);
+            }
+
+            menu->show_all();
+            menu->popup(event->button, event->time);
+            return true;
+        }
+        return false;
+    }
+
+    void on_delete_organization_click() {
+        auto iter = m_treeview.get_selection()->get_selected();
+        if (!iter) return;
+        Gtk::TreeModel::Row row = *iter;
+        std::string name = row[m_columns.m_col_name];
+        std::string id = row[m_columns.m_col_id];
+
+        Gtk::MessageDialog dialog(*this, "Delete Organization?", false, Gtk::MESSAGE_QUESTION, Gtk::BUTTONS_OK_CANCEL);
+        dialog.set_secondary_text("Are you sure you want to delete organization '" + name + "'?\nThis will delete ALL projects and connections associated with it.");
+
+        if (dialog.run() == Gtk::RESPONSE_OK) {
+            ConnectionManager::delete_organization(id);
+            load_tree_data();
+        }
+    }
+
+    void on_delete_project_click() {
+        auto iter = m_treeview.get_selection()->get_selected();
+        if (!iter) return;
+        Gtk::TreeModel::Row row = *iter;
+        std::string name = row[m_columns.m_col_name];
+        std::string id = row[m_columns.m_col_id];
+
+        Gtk::MessageDialog dialog(*this, "Delete Project?", false, Gtk::MESSAGE_QUESTION, Gtk::BUTTONS_OK_CANCEL);
+        dialog.set_secondary_text("Are you sure you want to delete project '" + name + "'?\nThis will delete ALL connections associated with it.");
+
+        if (dialog.run() == Gtk::RESPONSE_OK) {
+            ConnectionManager::delete_project(id);
+            load_tree_data();
+        }
+    }
+
+    void on_delete_connection_click() {
+        auto iter = m_treeview.get_selection()->get_selected();
+        if (!iter) return;
+        Gtk::TreeModel::Row row = *iter;
+        std::string name = row[m_columns.m_col_name];
+        std::string id = row[m_columns.m_col_id];
+        std::string projectId = row[m_columns.m_col_project_id];
+
+        Gtk::MessageDialog dialog(*this, "Delete Connection?", false, Gtk::MESSAGE_QUESTION, Gtk::BUTTONS_OK_CANCEL);
+        dialog.set_secondary_text("Are you sure you want to delete connection '" + name + "' for project '" + projectId + "'?");
+
+        if (dialog.run() == Gtk::RESPONSE_OK) {
+            ConnectionManager::delete_connection(projectId, id);
+            load_tree_data();
+        }
+    }
+
+    void on_authenticate_click() {
+        if (ConnectionManager::verify_auth()) {
+            Gtk::MessageDialog dialog(*this, "Authentication", false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK_CANCEL);
+            dialog.set_secondary_text("You are already authenticated with Google Cloud.\nDo you want to re-configure the default project?");
+
+            if (dialog.run() == Gtk::RESPONSE_OK) {
+                ConnectionManager::configure_default_project(*this, nullptr);
+            }
+        } else {
+            ConnectionManager::authenticate_user(*this, [this]() {
+                Gtk::MessageDialog dialog(*this, "Authentication Successful", false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK);
+                dialog.run();
+                ConnectionManager::configure_default_project(*this, nullptr);
+            });
+        }
     }
 
 protected:
@@ -463,6 +675,7 @@ protected:
     Gtk::Box m_right_box{Gtk::ORIENTATION_VERTICAL};
     Gtk::Notebook m_notebook;
     std::map<std::string, Gtk::Widget*> m_connection_to_tab;
+    Preferences m_prefs;
 };
 
 // The application entry point that initializes the GTK environment and parses command line arguments.
