@@ -13,32 +13,54 @@
 
 # Linker files
 *.ilk
+*.exp
+*.lib
+*.def
 
 # Debugger Files
 *.pdb
+*.idb
 
 # Compiled Dynamic libraries
 *.so
 *.dylib
 *.dll
 
-# Fortran module files
-*.mod
-*.smod
-
 # Compiled Static libraries
 *.lai
 *.la
 *.a
-*.lib
 
 # Executables
 *.exe
 *.out
 *.app
-
-# debug information files
-*.dwo
-
-# Binary files
 iapRemote
+
+# Debug information files
+*.dwo
+*.dsym/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+_CPack_Packages/
+CPackConfig.cmake
+CPackSourceConfig.cmake
+install_manifest.txt
+CTestTestfile.cmake
+
+# Suggested build directory
+build/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS specific
+.DS_Store
+Thumbs.db
