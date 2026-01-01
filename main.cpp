@@ -4,8 +4,6 @@
 #include <thread>
 #include <map>
 
-
-
 using json = nlohmann::json;
 
 class MainWindow : public Gtk::Window {
@@ -17,7 +15,6 @@ public:
     MainWindow() : m_width(800), m_height(600) {
 
         ConnectionManager::init();
-
         set_title("IAP Remote Desktop & SSH Manager");
         set_default_size(m_width, m_height);
 
@@ -54,7 +51,6 @@ public:
         m_menubar.append(*file_item);
         m_main_vbox.pack_start(m_menubar, Gtk::PACK_SHRINK);
 
-
         // Toolbar
         m_toolbar.set_name("app_toolbar");
         m_toolbar.set_size_request(-1, 24);
@@ -78,7 +74,6 @@ public:
 
         m_scrolled_window.add(m_treeview);
 
-
         m_scrolled_window.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
         m_left_box.pack_start(m_scrolled_window, Gtk::PACK_EXPAND_WIDGET);
 
@@ -94,7 +89,6 @@ public:
         m_paned.pack1(m_left_box, false, false);
         m_paned.pack2(m_right_box, true, true);
         m_paned.set_position(250);
-
 
         // Load CSS for styling
         auto css_provider = Gtk::CssProvider::create();
@@ -131,7 +125,8 @@ public:
                 for (const auto& conn : connections) {
                     Gtk::TreeModel::Row crow = *(m_refTreeModel->append(prow.children()));
                     crow[m_columns.m_col_id] = conn.id;
-                    crow[m_columns.m_col_name] = conn.name + " (" + conn.type + ":" + std::to_string(conn.port) + ")";
+                    crow[m_columns.m_col_name] = conn.name;
+
                     crow[m_columns.m_col_type] = "connection";
                     crow[m_columns.m_col_zone] = conn.zone;
                     crow[m_columns.m_col_project_id] = proj.id;
@@ -139,12 +134,9 @@ public:
                     crow[m_columns.m_col_conn_type] = conn.type;
                     crow[m_columns.m_col_username] = conn.username;
                     crow[m_columns.m_col_password] = conn.password;
-
                 }
-
             }
         }
-
         m_treeview.expand_all();
     }
 
@@ -250,8 +242,6 @@ public:
         id_col->set_resizable(true);
         project_list->append_column(*id_col);
 
-
-
         sw->add(*project_list);
         sw->set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
         sw->set_min_content_height(300);
@@ -355,7 +345,7 @@ public:
         ci.password = row[m_columns.m_col_password];
 
         std::string key = ci.projectId + "/" + ci.id;
-        
+
         if (m_connection_to_tab.count(key)) {
             int page_num = m_notebook.page_num(*m_connection_to_tab[key]);
             if (page_num >= 0) {
@@ -368,7 +358,7 @@ public:
 
         Gtk::Box* session_box = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_VERTICAL));
         session_box->show();
-        
+
         std::string tab_label = row[m_columns.m_col_name];
         int page_num = m_notebook.append_page(*session_box, tab_label);
 
@@ -391,9 +381,8 @@ public:
         }
     }
 
-
     void on_preferences_click() {
-        std::cout << "Preferences clicked" << std::endl;
+        // Implementation for preferences
     }
 
     void on_quit_click() {
@@ -401,13 +390,12 @@ public:
         hide();
     }
 
-
 protected:
     // Tree Model Columns
     class ModelColumns : public Gtk::TreeModel::ColumnRecord {
     public:
-        ModelColumns() { 
-            add(m_col_id); add(m_col_name); add(m_col_type); 
+        ModelColumns() {
+            add(m_col_id); add(m_col_name); add(m_col_type);
             add(m_col_zone); add(m_col_port); add(m_col_project_id);
             add(m_col_conn_type); add(m_col_username); add(m_col_password);
         }
@@ -453,9 +441,14 @@ protected:
     std::map<std::string, Gtk::Widget*> m_connection_to_tab;
 };
 
-
 int main(int argc, char* argv[]) {
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--debug") {
+            ConnectionManager::set_debug(true);
+        }
+    }
     auto app = Gtk::Application::create(argc, argv, "com.iap.remote");
     MainWindow window;
     return app->run(window);
 }
+

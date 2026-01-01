@@ -12,16 +12,15 @@
 #include <signal.h>
 #include <sys/wait.h>
 
-
-
-
-
-
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
 std::vector<GPid> ConnectionManager::m_active_pids;
+bool ConnectionManager::m_debug = false;
 
+void ConnectionManager::set_debug(bool debug) {
+    m_debug = debug;
+}
 
 void ConnectionManager::init() {
     ensure_config_dir();
@@ -43,7 +42,6 @@ std::string ConnectionManager::exec_command(const std::string& cmd) {
     return result;
 }
 
-
 std::string ConnectionManager::get_config_path() {
     std::string home = std::getenv("HOME");
     return home + "/.config/iapRemote/organizations.json";
@@ -58,8 +56,6 @@ std::string ConnectionManager::get_connections_config_path() {
     std::string home = std::getenv("HOME");
     return home + "/.config/iapRemote/connections.json";
 }
-
-
 
 void ConnectionManager::ensure_config_dir() {
     std::string home = std::getenv("HOME");
@@ -407,7 +403,7 @@ void ConnectionManager::open_ssh_session(Gtk::Box& session_container, const Conn
     // Create VTE Terminal
     VteTerminal* terminal = VTE_TERMINAL(vte_terminal_new());
     Gtk::Widget* term_widget = Glib::wrap(GTK_WIDGET(terminal));
-    
+
     session_container.pack_start(*term_widget, Gtk::PACK_EXPAND_WIDGET);
     term_widget->show();
 
@@ -445,7 +441,6 @@ void ConnectionManager::open_ssh_session(Gtk::Box& session_container, const Conn
     );
 }
 
-
 static int get_free_port() {
     int sock = ::socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in serv_addr;
@@ -468,25 +463,45 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
         // 0. Ask for credentials via a simple dialog
         Gtk::Window* toplevel = dynamic_cast<Gtk::Window*>(session_container.get_toplevel());
         Gtk::Dialog login_dialog("RDP Credentials for " + conn.id, *toplevel, true);
-        login_dialog.set_default_size(300, 200);
+        Gtk::Grid grid;
+        grid.set_row_spacing(10);
+        grid.set_column_spacing(10);
+        grid.set_margin_top(20);
+        grid.set_margin_bottom(20);
+        grid.set_margin_left(20);
+        grid.set_margin_right(20);
 
+        Gtk::Label user_label("Username:");
+        user_label.set_halign(Gtk::ALIGN_START);
         Gtk::Entry user_entry;
-        user_entry.set_placeholder_text("Username");
-        user_entry.set_text("user_" + conn.id); 
+        user_entry.set_text("user_" + conn.id);
+        user_entry.set_hexpand(true);
 
+        Gtk::Label pass_label("Password:");
+        pass_label.set_halign(Gtk::ALIGN_START);
         Gtk::Entry pass_entry;
-        pass_entry.set_placeholder_text("Password");
         pass_entry.set_visibility(false);
+        pass_entry.set_hexpand(true);
 
         Gtk::CheckButton save_check("Save credentials");
 
-        login_dialog.get_content_area()->pack_start(*Gtk::manage(new Gtk::Label("Enter credentials for " + conn.id)), Gtk::PACK_SHRINK);
-        login_dialog.get_content_area()->pack_start(user_entry, Gtk::PACK_SHRINK);
-        login_dialog.get_content_area()->pack_start(pass_entry, Gtk::PACK_SHRINK);
-        login_dialog.get_content_area()->pack_start(save_check, Gtk::PACK_SHRINK);
+        Gtk::Label header_label("Enter credentials for " + conn.id);
+        header_label.set_margin_bottom(10);
+        header_label.get_style_context()->add_class("h1"); // Try to use a heading style if available
+
+        grid.attach(header_label, 0, 0, 2, 1);
+        grid.attach(user_label, 0, 1, 1, 1);
+        grid.attach(user_entry, 1, 1, 1, 1);
+        grid.attach(pass_label, 0, 2, 1, 1);
+        grid.attach(pass_entry, 1, 2, 1, 1);
+        grid.attach(save_check, 1, 3, 1, 1);
+
+        login_dialog.get_content_area()->pack_start(grid, Gtk::PACK_EXPAND_WIDGET);
+
         login_dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
         login_dialog.add_button("Connect", Gtk::RESPONSE_OK);
         login_dialog.show_all_children();
+
 
         if (login_dialog.run() == Gtk::RESPONSE_OK) {
             username = user_entry.get_text();
@@ -511,7 +526,7 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
     loading_box->set_valign(Gtk::ALIGN_CENTER);
     auto spinner = Gtk::manage(new Gtk::Spinner());
     auto label = Gtk::manage(new Gtk::Label("Initializing IAP Tunnel for RDP..."));
-    
+
     loading_box->pack_start(*spinner, Gtk::PACK_SHRINK);
     loading_box->pack_start(*label, Gtk::PACK_SHRINK);
     session_container.pack_start(*loading_box, Gtk::PACK_EXPAND_WIDGET);
@@ -521,7 +536,8 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
     int local_port = get_free_port();
 
     // 2. Start gcloud tunnel
-    std::cerr << "DEBUG: Starting tunnel for " << conn.id << " on port " << local_port << std::endl;
+    if (m_debug) std::cerr << "DEBUG: Starting tunnel for " << conn.id << " on port " << local_port << std::endl;
+
     std::vector<std::string> tunnel_argv = {
         "gcloud", "compute", "start-iap-tunnel",
         conn.id, "3389",
@@ -547,7 +563,8 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
     Glib::signal_timeout().connect([&session_container, local_port, tunnel_pid, exit_cb_shared, loading_box, username, password]() -> bool {
         // Check if tunnel process is still alive
         if (::kill(tunnel_pid, 0) != 0) {
-            std::cerr << "DEBUG: Tunnel process " << tunnel_pid << " detected as DEAD during polling." << std::endl;
+            if (m_debug) std::cerr << "DEBUG: Tunnel process " << tunnel_pid << " detected as DEAD during polling." << std::endl;
+
             if (*exit_cb_shared) (*exit_cb_shared)();
             return false;
         }
@@ -557,12 +574,13 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
         serv_addr.sin_family = AF_INET;
         serv_addr.sin_port = htons(local_port);
         inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr);
-        
+
         bool connected = (::connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == 0);
         ::close(sock);
 
         if (connected) {
-            std::cerr << "DEBUG: Port " << local_port << " is listening. Proceeding to add socket." << std::endl;
+            if (m_debug) std::cerr << "DEBUG: Port " << local_port << " is listening. Proceeding to add socket." << std::endl;
+
             session_container.remove(*loading_box);
 
             Gtk::Socket* socket_widget = Gtk::manage(new Gtk::Socket());
@@ -571,20 +589,22 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
 
             auto on_realize_logic = [&session_container, local_port, socket_widget, tunnel_pid, exit_cb_shared, username, password]() {
                 uint64_t xid = socket_widget->get_id();
-                std::cerr << "DEBUG: Socket realized. XID: " << xid << ". Launching xfreerdp." << std::endl;
-                
+                if (m_debug) std::cerr << "DEBUG: Socket realized. XID: " << xid << ". Launching xfreerdp." << std::endl;
+
+
                 Glib::signal_timeout().connect_once([&session_container, local_port, xid, tunnel_pid, exit_cb_shared, username, password]() {
-                    std::cerr << "DEBUG: Launching xfreerdp now..." << std::endl;
+                    if (m_debug) std::cerr << "DEBUG: Launching xfreerdp now..." << std::endl;
+
                     std::vector<std::string> rdp_argv = {
-                        "xfreerdp", 
+                        "xfreerdp",
                         "/v:127.0.0.1:" + std::to_string(local_port),
                         "/parent-window:" + std::to_string(xid),
                         "/cert-ignore",
                         "/dynamic-resolution",
                         "+home-drive",
-                        "/u:" + username, 
+                        "/u:" + username,
                         "/p:" + password,
-                        "/sec:nla", 
+                        "/sec:nla",
                         "/audio-mode:0"
                     };
 
@@ -598,8 +618,9 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
                             if (WIFEXITED(status)) {
                                 exit_code = WEXITSTATUS(status);
                             }
-                            std::cerr << "DEBUG: RDP process exited. Raw status: " << status << ", Exit code: " << exit_code << std::endl;
-                            
+                            if (m_debug) std::cerr << "DEBUG: RDP process exited. Raw status: " << status << ", Exit code: " << exit_code << std::endl;
+
+
                             bool failure = (exit_code != 0 && exit_code != 12 && exit_code != 13);
                             if (failure) {
                                 auto label = Gtk::manage(new Gtk::Label("RDP Connection failed. Check your credentials and network settings."));
@@ -612,18 +633,19 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
                             ::kill(tunnel_pid, SIGKILL);
                             Glib::spawn_close_pid(pid);
                             Glib::spawn_close_pid(tunnel_pid);
-                            
+
                             if (failure) {
                                 Glib::signal_timeout().connect_once([exit_cb_shared]() {
                                     if (*exit_cb_shared) (*exit_cb_shared)();
-                                }, 3000); 
+                                }, 3000);
                             } else {
                                 if (*exit_cb_shared) (*exit_cb_shared)();
                             }
                         }, rdp_pid);
 
                     } catch (const std::exception& e) {
-                        std::cerr << "DEBUG: Failed to launch xfreerdp: " << e.what() << std::endl;
+                        if (m_debug) std::cerr << "DEBUG: Failed to launch xfreerdp: " << e.what() << std::endl;
+
                         ::kill(tunnel_pid, SIGTERM);
                         if (*exit_cb_shared) (*exit_cb_shared)();
                     }
@@ -636,15 +658,13 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
                 socket_widget->signal_realize().connect(on_realize_logic);
             }
 
-            return false; 
+            return false;
         }
 
 
-        return true; 
+        return true;
     }, 500);
 }
-
-
 
 void ConnectionManager::cleanup() {
     for (auto pid : m_active_pids) {

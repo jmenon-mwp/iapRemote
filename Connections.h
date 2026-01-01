@@ -9,7 +9,6 @@
 #include <functional>
 #include <nlohmann/json.hpp>
 
-
 struct OrganizationInfo {
     std::string id;
     std::string name;
@@ -32,7 +31,6 @@ struct ConnectionInfo {
     std::string password;
 };
 
-
 class ConnectionManager {
 public:
     static void init();
@@ -43,24 +41,20 @@ public:
     static void save_projects(const std::string& orgId, const std::vector<ProjectInfo>& projects);
     static std::vector<ConnectionInfo> load_connections(const std::string& projectId);
     static void save_connections(const std::string& projectId, const std::vector<ConnectionInfo>& connections);
-    
+
     // UI Related methods
     static void manage_add_connection(Gtk::Window& parent, const std::string& projectId, const std::string& projectName, std::function<void()> on_save);
     static void open_ssh_session(Gtk::Box& session_container, const ConnectionInfo& conn, std::function<void()> on_exit);
     static void open_rdp_session(Gtk::Box& session_container, const ConnectionInfo& conn, std::function<void()> on_exit);
 
-
     static std::string get_config_path();
     static std::string get_projects_config_path();
     static std::string get_connections_config_path();
 
-
-
     static void cleanup();
-
+    static void set_debug(bool debug);
+    static bool m_debug;
 private:
     static void ensure_config_dir();
     static std::vector<GPid> m_active_pids;
 };
-
-

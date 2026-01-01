@@ -13,9 +13,22 @@
     background-color: #3d3d3d;
 }
 
-#right_pane label {
-    color: #ffffff;
-    font-weight: bold;
+/* Style the notebook itself if needed */
+notebook {
+    background-color: #3d3d3d;
+}
+
+notebook tab {
+    background-color: #e0e0e0;
+}
+
+notebook tab label {
+    color: #333333;
+    font-weight: normal;
+}
+
+notebook tab:checked {
+    background-color: #ffffff;
 }
 
 /* Make the paned divider more visible */
