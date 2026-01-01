@@ -43,7 +43,7 @@ void ConnectionManager::init() {
 std::string ConnectionManager::exec_command(const std::string& cmd) {
     std::array<char, 128> buffer;
     std::string result;
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
+    std::unique_ptr<FILE, std::function<int(FILE*)>> pipe(popen(cmd.c_str(), "r"), [](FILE* f) { return pclose(f); });
     if (!pipe) return "";
     while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
         result += buffer.data();
