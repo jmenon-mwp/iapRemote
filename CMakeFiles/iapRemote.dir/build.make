@@ -164,8 +164,6 @@ iapRemote: /opt/vcpkg/installed/x64-linux/lib/libupb_base_lib.a
 iapRemote: /opt/vcpkg/installed/x64-linux/lib/libgpr.a
 iapRemote: /opt/vcpkg/installed/x64-linux/lib/libre2.a
 iapRemote: /opt/vcpkg/installed/x64-linux/lib/libssl.a
-iapRemote: /opt/vcpkg/installed/x64-linux/lib/libcrypto.a
-iapRemote: /usr/lib/x86_64-linux-gnu/libdl.a
 iapRemote: /opt/vcpkg/installed/x64-linux/lib/libprotobuf.a
 iapRemote: /opt/vcpkg/installed/x64-linux/lib/libabsl_log_internal_check_op.a
 iapRemote: /opt/vcpkg/installed/x64-linux/lib/libabsl_die_if_null.a
@@ -250,6 +248,8 @@ iapRemote: /opt/vcpkg/installed/x64-linux/lib/libabsl_raw_logging_internal.a
 iapRemote: /opt/vcpkg/installed/x64-linux/lib/libabsl_log_severity.a
 iapRemote: /opt/vcpkg/installed/x64-linux/lib/libz.a
 iapRemote: /opt/vcpkg/installed/x64-linux/lib/libcares.a
+iapRemote: /opt/vcpkg/installed/x64-linux/lib/libcrypto.a
+iapRemote: /usr/lib/x86_64-linux-gnu/libdl.a
 iapRemote: CMakeFiles/iapRemote.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/jmenon/Code/Personal/Private/iapRemote/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Linking CXX executable iapRemote"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/iapRemote.dir/link.txt --verbose=$(VERBOSE)

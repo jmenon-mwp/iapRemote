@@ -8,10 +8,14 @@ using json = nlohmann::json;
 
 class MainWindow : public Gtk::Window {
 public:
+    // The destructor ensures all background processes are cleaned up before the application exits.
+    // Calls ConnectionManager::cleanup to kill active tunnels and terminal sessions.
     virtual ~MainWindow() {
         ConnectionManager::cleanup();
     }
 
+    // The constructor initializes the main application window and sets up the GTK UI layout.
+    // Configures the menu, toolbar, and the split-pane view for connections and sessions.
     MainWindow() : m_width(800), m_height(600) {
 
         ConnectionManager::init();
@@ -105,6 +109,8 @@ public:
         show_all_children();
     }
 
+    // Populates the sidebar with organizations, projects, and instances from local configuration.
+    // Iterates through stored JSON files to build the hierarchical tree structure.
     void load_tree_data() {
         m_refTreeModel->clear();
         auto orgs = ConnectionManager::load_organizations();
@@ -140,6 +146,8 @@ public:
         m_treeview.expand_all();
     }
 
+    // Updates the state of menu items and toolbar buttons based on the user's selection.
+    // Disables project or connection actions if the selection context is inappropriate.
     void on_tree_selection_changed() {
         auto iter = m_treeview.get_selection()->get_selected();
         if (iter) {
@@ -153,6 +161,8 @@ public:
         }
     }
 
+    // Displays a modal dialog to allow the user to add a new GCP organization.
+    // Saves the organization details to a local configuration file for persistence.
     void on_add_organization_click() {
         // Simple dialog to fetch and add organization
         std::string output = ConnectionManager::exec_command("gcloud organizations list --format=\"json\" --quiet");
@@ -196,6 +206,8 @@ public:
         }
     }
 
+    // Launches a multi-tier selection process to discovery and add GCP projects to an organization.
+    // Communicates with gcloud to list and store project metadata locally.
     void on_add_project_click() {
         auto iter = m_treeview.get_selection()->get_selected();
         if (!iter) return;
@@ -315,6 +327,8 @@ public:
         conn.disconnect();
     }
 
+    // Allows the user to find and add specific compute instances to a managed project.
+    // Triggers the connection manager to fetch and display available instances.
     void on_add_connection_click() {
         auto iter = m_treeview.get_selection()->get_selected();
         if (!iter) return;
@@ -327,6 +341,8 @@ public:
         });
     }
 
+    // Opens an SSH or RDP session in a new or existing tab when an instance is double-clicked.
+    // Managed session lifecycle through a tabbed notebook interface.
     void on_connection_double_clicked(const Gtk::TreeModel::Path& path, Gtk::TreeViewColumn* column) {
         auto iter = m_refTreeModel->get_iter(path);
         if (!iter) return;
@@ -381,10 +397,14 @@ public:
         }
     }
 
+    // Placeholder for application-wide settings such as theme or default terminal behavior.
+    // Currently defined as a hook for future customization features.
     void on_preferences_click() {
         // Implementation for preferences
     }
 
+    // Gracefully shuts down the application and its background processes.
+    // Ensures the main window is hidden and resources are released.
     void on_quit_click() {
         ConnectionManager::cleanup();
         hide();
@@ -394,6 +414,8 @@ protected:
     // Tree Model Columns
     class ModelColumns : public Gtk::TreeModel::ColumnRecord {
     public:
+        // Constructor for the TreeView column record that defines the connection metadata structure.
+        // Maps configuration data to visible and hidden columns in the sidebar.
         ModelColumns() {
             add(m_col_id); add(m_col_name); add(m_col_type);
             add(m_col_zone); add(m_col_port); add(m_col_project_id);
@@ -413,6 +435,8 @@ protected:
 
     class ProjectModelColumns : public Gtk::TreeModel::ColumnRecord {
     public:
+        // Constructor for the project selection list column record.
+        // Defines the structure for the checkable project list in the discovery dialog.
         ProjectModelColumns() { add(m_col_selected); add(m_col_id); add(m_col_name); }
         Gtk::TreeModelColumn<bool> m_col_selected;
         Gtk::TreeModelColumn<std::string> m_col_id;
@@ -441,6 +465,8 @@ protected:
     std::map<std::string, Gtk::Widget*> m_connection_to_tab;
 };
 
+// The application entry point that initializes the GTK environment and parses command line arguments.
+// Supports the --debug flag to enable verbose logging during runtime.
 int main(int argc, char* argv[]) {
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--debug") {

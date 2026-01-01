@@ -13,10 +13,11 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTKMM REQUIRED IMPORTED_TARGET gtkmm-3.0)
 pkg_check_modules(VTE REQUIRED IMPORTED_TARGET vte-2.91)
 pkg_check_modules(GCP_IAP REQUIRED IMPORTED_TARGET google_cloud_cpp_iap)
+pkg_check_modules(CRYPTO REQUIRED IMPORTED_TARGET libcrypto)
 
-add_executable(iapRemote 
-    main.cpp 
-    Connections.cpp 
+add_executable(iapRemote
+    main.cpp
+    Connections.cpp
     Connections.h
 )
 
@@ -25,10 +26,8 @@ target_link_libraries(iapRemote
     PkgConfig::GTKMM
     PkgConfig::VTE
     PkgConfig::GCP_IAP
+    PkgConfig::CRYPTO
 )
-
-
-
 
 # Platform specific configurations
 if(WIN32)

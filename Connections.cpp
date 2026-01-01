@@ -11,6 +11,9 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <openssl/evp.h>
+#include <openssl/rand.h>
+#include <openssl/buffer.h>
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
@@ -18,10 +21,14 @@ using json = nlohmann::json;
 std::vector<GPid> ConnectionManager::m_active_pids;
 bool ConnectionManager::m_debug = false;
 
+// Sets the global debug flag for the application.
+// Controls whether detailed logs are printed to the console.
 void ConnectionManager::set_debug(bool debug) {
     m_debug = debug;
 }
 
+// Initializes the ConnectionManager by ensuring config directories exist.
+// Creates the default organization storage file if it is missing.
 void ConnectionManager::init() {
     ensure_config_dir();
     std::string path = get_config_path();
@@ -31,6 +38,8 @@ void ConnectionManager::init() {
     }
 }
 
+// Executes a shell command and captures its standard output.
+// Uses popen to run the command and returns the result as a string.
 std::string ConnectionManager::exec_command(const std::string& cmd) {
     std::array<char, 128> buffer;
     std::string result;
@@ -42,21 +51,29 @@ std::string ConnectionManager::exec_command(const std::string& cmd) {
     return result;
 }
 
+// Returns the absolute path to the organizations configuration file.
+// Typically located in the user's .config directory for persistence.
 std::string ConnectionManager::get_config_path() {
     std::string home = std::getenv("HOME");
     return home + "/.config/iapRemote/organizations.json";
 }
 
+// Returns the absolute path to the projects configuration file.
+// Used to store the relationship between organizations and projects.
 std::string ConnectionManager::get_projects_config_path() {
     std::string home = std::getenv("HOME");
     return home + "/.config/iapRemote/projects.json";
 }
 
+// Returns the absolute path to the connections configuration file.
+// This file stores instance details like IDs, zones, and credentials.
 std::string ConnectionManager::get_connections_config_path() {
     std::string home = std::getenv("HOME");
     return home + "/.config/iapRemote/connections.json";
 }
 
+// Creates the application's configuration directory if it doesn't exist.
+// Uses standard filesystem paths to ensure a consistent local storage.
 void ConnectionManager::ensure_config_dir() {
     std::string home = std::getenv("HOME");
     fs::path dir = fs::path(home) / ".config" / "iapRemote";
@@ -65,6 +82,8 @@ void ConnectionManager::ensure_config_dir() {
     }
 }
 
+// Reads the list of organizations from local storage.
+// Parses the JSON configuration file and returns a vector of OrganizationInfo.
 std::vector<OrganizationInfo> ConnectionManager::load_organizations() {
     std::vector<OrganizationInfo> orgs;
     std::ifstream file(get_config_path());
@@ -82,6 +101,8 @@ std::vector<OrganizationInfo> ConnectionManager::load_organizations() {
     return orgs;
 }
 
+// Adds a new organization to the local configuration file.
+// Appends the organization to the existing list while avoiding duplicates.
 void ConnectionManager::save_organization(const OrganizationInfo& org) {
     std::vector<OrganizationInfo> orgs = load_organizations();
 
@@ -101,6 +122,8 @@ void ConnectionManager::save_organization(const OrganizationInfo& org) {
     file << j.dump(4);
 }
 
+// Fetches the list of projects associated with a specific organization.
+// Filters the global project list by the provided organization ID.
 std::vector<ProjectInfo> ConnectionManager::load_projects(const std::string& orgId) {
     std::vector<ProjectInfo> projects;
     std::ifstream file(get_projects_config_path());
@@ -118,6 +141,8 @@ std::vector<ProjectInfo> ConnectionManager::load_projects(const std::string& org
     return projects;
 }
 
+// Updates the project list for a specific organization in storage.
+// Merges new project data with existing records to keep the config synchronized.
 void ConnectionManager::save_projects(const std::string& orgId, const std::vector<ProjectInfo>& newProjects) {
     std::ifstream infile(get_projects_config_path());
     json j = json::array();
@@ -155,6 +180,8 @@ void ConnectionManager::save_projects(const std::string& orgId, const std::vecto
     outfile << updated.dump(4);
 }
 
+// Retrieves connection details for a specific project from disk.
+// Decrypts stored passwords and returns instance metadata for the UI.
 std::vector<ConnectionInfo> ConnectionManager::load_connections(const std::string& projectId) {
     std::vector<ConnectionInfo> connections;
     std::ifstream file(get_connections_config_path());
@@ -173,15 +200,16 @@ std::vector<ConnectionInfo> ConnectionManager::load_connections(const std::strin
                     item.value("type", "SSH"),
                     projectId,
                     item.value("username", ""),
-                    item.value("password", "")
+                    decrypt_value(item.value("password", ""))
                 });
-
             }
         }
     } catch (...) {}
     return connections;
 }
 
+// Persists connection settings and credentials for a project.
+// Encrypts passwords before writing them to the JSON configuration file.
 void ConnectionManager::save_connections(const std::string& projectId, const std::vector<ConnectionInfo>& newConns) {
     std::ifstream infile(get_connections_config_path());
     json j = json::array();
@@ -203,8 +231,9 @@ void ConnectionManager::save_connections(const std::string& projectId, const std
                 item.value("type", "SSH"),
                 projectId,
                 item.value("username", ""),
-                item.value("password", "")
+                decrypt_value(item.value("password", ""))
             };
+
 
         } else {
             others.push_back(item);
@@ -226,15 +255,16 @@ void ConnectionManager::save_connections(const std::string& projectId, const std
             {"type", c.type},
             {"projectId", projectId},
             {"username", c.username},
-            {"password", c.password}
+            {"password", encrypt_value(c.password)}
         });
     }
-
 
     std::ofstream outfile(get_connections_config_path());
     outfile << updated.dump(4);
 }
 
+// Launches a dialog to discover and add new compute instances.
+// Fetches instances from GCP and allows the user to save them locally.
 void ConnectionManager::manage_add_connection(Gtk::Window& parent, const std::string& project_id, const std::string& project_name, std::function<void()> on_save) {
     Gtk::Dialog dialog("Add Connections to " + project_name, parent, true);
     dialog.set_default_size(650, 500);
@@ -395,6 +425,8 @@ void ConnectionManager::manage_add_connection(Gtk::Window& parent, const std::st
     conn_sig.disconnect();
 }
 
+// Initiates an SSH session through an IAP tunnel in a VTE terminal.
+// Tracks the spawned process and triggers a callback when the session ends.
 void ConnectionManager::open_ssh_session(Gtk::Box& session_container, const ConnectionInfo& conn, std::function<void()> on_exit) {
     // Clear box
     auto children = session_container.get_children();
@@ -441,6 +473,8 @@ void ConnectionManager::open_ssh_session(Gtk::Box& session_container, const Conn
     );
 }
 
+// Finds an available local TCP port to use for the IAP tunnel.
+// Temporarily binds a socket to port 0 to let the OS assign a random port.
 static int get_free_port() {
     int sock = ::socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in serv_addr;
@@ -455,6 +489,8 @@ static int get_free_port() {
     return port;
 }
 
+// Establishes an RDP connection by piping through a local IAP tunnel.
+// Spawns xfreerdp and embeds it into the GTK UI using an X11 socket.
 void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const ConnectionInfo& conn, std::function<void()> on_exit) {
     std::string username = conn.username;
     std::string password = conn.password;
@@ -666,6 +702,8 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
     }, 500);
 }
 
+// Terminates all active background processes tracked by the manager.
+// Sends SIGTERM to active PIDs and clears the tracking list during shutdown.
 void ConnectionManager::cleanup() {
     for (auto pid : m_active_pids) {
         ::kill(pid, SIGTERM);
@@ -673,6 +711,88 @@ void ConnectionManager::cleanup() {
     }
     m_active_pids.clear();
 }
+
+static const unsigned char g_key[] = "iapRemote-secure-storage-key-77"; // 32 bytes approx
+
+// Obfuscates a string value using AES-256-CBC encryption.
+// Returns a Base64 encoded string containing the IV and the ciphertext.
+std::string ConnectionManager::encrypt_value(const std::string& value) {
+    if (value.empty()) return "";
+
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    unsigned char iv[16];
+    if (!RAND_bytes(iv, sizeof(iv))) return "";
+
+    EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, g_key, iv);
+
+    std::vector<unsigned char> encrypted(value.size() + EVP_MAX_BLOCK_LENGTH);
+    int len;
+    EVP_EncryptUpdate(ctx, encrypted.data(), &len, (unsigned char*)value.c_str(), value.size());
+    int ciphertext_len = len;
+    EVP_EncryptFinal_ex(ctx, encrypted.data() + len, &len);
+    ciphertext_len += len;
+
+    EVP_CIPHER_CTX_free(ctx);
+
+    // Combine IV + Ciphertext
+    std::vector<unsigned char> combined;
+    combined.insert(combined.end(), iv, iv + 16);
+    combined.insert(combined.end(), encrypted.begin(), encrypted.begin() + ciphertext_len);
+
+    // Base64 Encode
+    BIO *bmem, *b64;
+    BUF_MEM *bptr;
+    b64 = BIO_new(BIO_f_base64());
+    BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
+    bmem = BIO_new(BIO_s_mem());
+    b64 = BIO_push(b64, bmem);
+    BIO_write(b64, combined.data(), combined.size());
+    BIO_flush(b64);
+    BIO_get_mem_ptr(b64, &bptr);
+
+    std::string result(bptr->data, bptr->length);
+    BIO_free_all(b64);
+
+    return result;
+}
+
+// Reverses the obfuscation of an encrypted string value.
+// Handles legacy plaintext gracefully while restoring the original password string.
+std::string ConnectionManager::decrypt_value(const std::string& value) {
+    if (value.empty()) return "";
+
+    // Base64 Decode
+    BIO *b64, *bmem;
+    std::vector<unsigned char> decode_buf(value.size());
+    b64 = BIO_new(BIO_f_base64());
+    BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
+    bmem = BIO_new_mem_buf(value.c_str(), value.size());
+    b64 = BIO_push(b64, bmem);
+    int decoded_len = BIO_read(b64, decode_buf.data(), value.size());
+    BIO_free_all(b64);
+
+    if (decoded_len < 16) return value; // Not an encrypted string or too short
+
+    unsigned char iv[16];
+    memcpy(iv, decode_buf.data(), 16);
+
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, g_key, iv);
+
+    std::vector<unsigned char> decrypted(decoded_len);
+    int len;
+    EVP_DecryptUpdate(ctx, decrypted.data(), &len, decode_buf.data() + 16, decoded_len - 16);
+    int plaintext_len = len;
+    if (EVP_DecryptFinal_ex(ctx, decrypted.data() + len, &len) <= 0) {
+        EVP_CIPHER_CTX_free(ctx);
+        return value; // Decryption failed, return original (maybe it was already plaintext)
+    }
+    plaintext_len += len;
+    EVP_CIPHER_CTX_free(ctx);
+
+    return std::string((char*)decrypted.data(), plaintext_len);
+}
+
 
 
 
