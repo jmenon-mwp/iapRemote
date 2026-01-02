@@ -211,6 +211,7 @@ std::vector<ConnectionInfo> ConnectionManager::load_connections(const std::strin
 
 // Persists connection settings and credentials for a project.
 // Encrypts passwords before writing them to the JSON configuration file.
+// Preserves original order of connections in the file.
 void ConnectionManager::save_connections(const std::string& projectId, const std::vector<ConnectionInfo>& newConns) {
     std::ifstream infile(get_connections_config_path());
     json j = json::array();
@@ -219,35 +220,38 @@ void ConnectionManager::save_connections(const std::string& projectId, const std
     }
     infile.close();
 
-    std::unordered_map<std::string, ConnectionInfo> projConns;
-    json others = json::array();
+    json updated = json::array();
+    std::vector<ConnectionInfo> processedNewConns = newConns;
+
+    // 1. Update existing connections in-place or keep them if they don't match
     for (auto& item : j) {
+        bool match_found = false;
         if (item.value("projectId", "") == projectId) {
             std::string id = item.value("id", "");
-            projConns[id] = {
-                id,
-                item.value("name", ""),
-                item.value("zone", ""),
-                item.value("port", 22),
-                item.value("type", "SSH"),
-                projectId,
-                item.value("username", ""),
-                decrypt_value(item.value("password", ""))
-            };
-
-
-        } else {
-            others.push_back(item);
+            for (auto it = processedNewConns.begin(); it != processedNewConns.end(); ++it) {
+                if (it->id == id) {
+                    // Update this item
+                    item = {
+                        {"id", it->id},
+                        {"name", it->name},
+                        {"zone", it->zone},
+                        {"port", it->port},
+                        {"type", it->type},
+                        {"projectId", projectId},
+                        {"username", it->username},
+                        {"password", encrypt_value(it->password)}
+                    };
+                    processedNewConns.erase(it);
+                    match_found = true;
+                    break;
+                }
+            }
         }
+        updated.push_back(item);
     }
 
-    for (const auto& c : newConns) {
-        projConns[c.id] = c;
-    }
-
-    json updated = others;
-    for (const auto& pair : projConns) {
-        const auto& c = pair.second;
+    // 2. Add brand new connections (that weren't in the original file) to the end
+    for (const auto& c : processedNewConns) {
         updated.push_back({
             {"id", c.id},
             {"name", c.name},
@@ -610,7 +614,6 @@ void ConnectionManager::configure_default_project(Gtk::Window& parent, std::func
     if (on_done) on_done();
 }
 
-
 // Launches a dialog to discover and add new compute instances.
 // Fetches instances from GCP and allows the user to save them locally.
 void ConnectionManager::manage_add_connection(Gtk::Window& parent, const std::string& project_id, const std::string& project_name, std::function<void()> on_save) {
@@ -797,27 +800,31 @@ void ConnectionManager::open_ssh_session(Gtk::Box& session_container, const Conn
         }), cb_ptr, NULL, (GConnectFlags)0);
     }
 
-    // Spawn SSH command
+    // Wrap the gcloud command in a shell script.
+    // If the command fails (exit code != 0), it prints a message and waits for a keypress.
+    std::string full_cmd = "gcloud compute ssh " + conn.id +
+                        " --project " + conn.projectId +
+                        " --zone " + conn.zone +
+                        " --tunnel-through-iap || { echo -e \"\\r\\n\\r\\n[iapRemote] Session failed. Press any key to close this tab...\"; read -n 1 -s; }";
+
     char* argv[] = {
-        (char*)"gcloud", (char*)"compute", (char*)"ssh",
-        (char*)conn.id.c_str(),
-        (char*)"--project", (char*)conn.projectId.c_str(),
-        (char*)"--zone", (char*)conn.zone.c_str(),
-        (char*)"--tunnel-through-iap",
+        (char*)"/bin/bash",
+        (char*)"-c",
+        (char*)full_cmd.c_str(),
         NULL
     };
 
     vte_terminal_spawn_async(terminal,
         VTE_PTY_DEFAULT,
-        NULL, // working directory
+        NULL,
         argv,
-        NULL, // envv
+        NULL,
         (GSpawnFlags)0,
-        NULL, NULL, // child setup
-        NULL, // child pid
-        -1, // timeout
-        NULL, // cancellable
-        NULL, NULL // callback
+        NULL, NULL,
+        NULL,
+        -1,
+        NULL,
+        NULL, NULL
     );
 }
 
@@ -839,68 +846,71 @@ static int get_free_port() {
 
 // Establishes an RDP connection by piping through a local IAP tunnel.
 // Spawns xfreerdp and embeds it into the GTK UI using an X11 socket.
+bool ConnectionManager::prompt_rdp_credentials(Gtk::Window& parent, ConnectionInfo& conn) {
+    Gtk::Dialog login_dialog("RDP Credentials for " + conn.id, parent, true);
+    Gtk::Grid grid;
+    grid.set_row_spacing(10);
+    grid.set_column_spacing(10);
+    grid.set_margin_top(20);
+    grid.set_margin_bottom(20);
+    grid.set_margin_left(20);
+    grid.set_margin_right(20);
+
+    Gtk::Label user_label("Username:");
+    user_label.set_halign(Gtk::ALIGN_START);
+    Gtk::Entry user_entry;
+    user_entry.set_text(conn.username.empty() ? ("user_" + conn.id) : conn.username);
+    user_entry.set_hexpand(true);
+
+    Gtk::Label pass_label("Password:");
+    pass_label.set_halign(Gtk::ALIGN_START);
+    Gtk::Entry pass_entry;
+    pass_entry.set_text(conn.password);
+    pass_entry.set_visibility(false);
+    pass_entry.set_hexpand(true);
+
+    Gtk::CheckButton save_check("Save credentials");
+    save_check.set_active(!conn.username.empty());
+
+    Gtk::Label header_label("Enter credentials for " + conn.id);
+    header_label.set_margin_bottom(10);
+    header_label.get_style_context()->add_class("h1");
+
+    grid.attach(header_label, 0, 0, 2, 1);
+    grid.attach(user_label, 0, 1, 1, 1);
+    grid.attach(user_entry, 1, 1, 1, 1);
+    grid.attach(pass_label, 0, 2, 1, 1);
+    grid.attach(pass_entry, 1, 2, 1, 1);
+    grid.attach(save_check, 1, 3, 1, 1);
+
+    login_dialog.get_content_area()->pack_start(grid, Gtk::PACK_EXPAND_WIDGET);
+    login_dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
+    login_dialog.add_button("Save/Connect", Gtk::RESPONSE_OK);
+    login_dialog.show_all_children();
+
+    if (login_dialog.run() == Gtk::RESPONSE_OK) {
+        conn.username = user_entry.get_text();
+        conn.password = pass_entry.get_text();
+        if (save_check.get_active()) {
+            save_connections(conn.projectId, {conn});
+        }
+        return true;
+    }
+    return false;
+}
+
 void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const ConnectionInfo& conn, std::function<void()> on_exit) {
-    std::string username = conn.username;
-    std::string password = conn.password;
+    ConnectionInfo current_conn = conn;
 
-    if (username.empty() || password.empty()) {
-        // 0. Ask for credentials via a simple dialog
+    if (current_conn.username.empty() || current_conn.password.empty()) {
         Gtk::Window* toplevel = dynamic_cast<Gtk::Window*>(session_container.get_toplevel());
-        Gtk::Dialog login_dialog("RDP Credentials for " + conn.id, *toplevel, true);
-        Gtk::Grid grid;
-        grid.set_row_spacing(10);
-        grid.set_column_spacing(10);
-        grid.set_margin_top(20);
-        grid.set_margin_bottom(20);
-        grid.set_margin_left(20);
-        grid.set_margin_right(20);
-
-        Gtk::Label user_label("Username:");
-        user_label.set_halign(Gtk::ALIGN_START);
-        Gtk::Entry user_entry;
-        user_entry.set_text("user_" + conn.id);
-        user_entry.set_hexpand(true);
-
-        Gtk::Label pass_label("Password:");
-        pass_label.set_halign(Gtk::ALIGN_START);
-        Gtk::Entry pass_entry;
-        pass_entry.set_visibility(false);
-        pass_entry.set_hexpand(true);
-
-        Gtk::CheckButton save_check("Save credentials");
-
-        Gtk::Label header_label("Enter credentials for " + conn.id);
-        header_label.set_margin_bottom(10);
-        header_label.get_style_context()->add_class("h1"); // Try to use a heading style if available
-
-        grid.attach(header_label, 0, 0, 2, 1);
-        grid.attach(user_label, 0, 1, 1, 1);
-        grid.attach(user_entry, 1, 1, 1, 1);
-        grid.attach(pass_label, 0, 2, 1, 1);
-        grid.attach(pass_entry, 1, 2, 1, 1);
-        grid.attach(save_check, 1, 3, 1, 1);
-
-        login_dialog.get_content_area()->pack_start(grid, Gtk::PACK_EXPAND_WIDGET);
-
-        login_dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
-        login_dialog.add_button("Connect", Gtk::RESPONSE_OK);
-        login_dialog.show_all_children();
-
-
-        if (login_dialog.run() == Gtk::RESPONSE_OK) {
-            username = user_entry.get_text();
-            password = pass_entry.get_text();
-            if (save_check.get_active()) {
-                ConnectionInfo updated_conn = conn;
-                updated_conn.username = username;
-                updated_conn.password = password;
-                save_connections(conn.projectId, {updated_conn});
-            }
-        } else {
+        if (!prompt_rdp_credentials(*toplevel, current_conn)) {
             return; // User cancelled
         }
     }
 
+    std::string username = current_conn.username;
+    std::string password = current_conn.password;
 
     // 1. Clear current area and show loading status
     auto children = session_container.get_children();
@@ -1045,7 +1055,6 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
             return false;
         }
 
-
         return true;
     }, 500);
 }
@@ -1140,11 +1149,3 @@ std::string ConnectionManager::decrypt_value(const std::string& value) {
 
     return std::string((char*)decrypted.data(), plaintext_len);
 }
-
-
-
-
-
-
-
-

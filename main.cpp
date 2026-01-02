@@ -1,15 +1,18 @@
 #include "Connections.h"
+#include <nlohmann/json.hpp>
 #include <iostream>
 #include <filesystem>
 #include <thread>
 #include <map>
 #include <regex>
 #include <optional>
+#include "Icon.h"
 
 using json = nlohmann::json;
 
 class MainWindow : public Gtk::Window {
 public:
+
     // The destructor ensures all background processes are cleaned up before the application exits.
     // Calls ConnectionManager::cleanup to kill active tunnels and terminal sessions.
     virtual ~MainWindow() {
@@ -31,30 +34,29 @@ public:
         auto file_menu = Gtk::manage(new Gtk::Menu());
         auto file_item = Gtk::manage(new Gtk::MenuItem("_File", true));
         file_item->set_submenu(*file_menu);
-
         auto add_org_item = Gtk::manage(new Gtk::MenuItem("Add Organization"));
-        m_add_project_item = Gtk::manage(new Gtk::MenuItem("Add Project"));
-        m_add_connection_item = Gtk::manage(new Gtk::MenuItem("Add Connection"));
         auto prefs_item = Gtk::manage(new Gtk::MenuItem("Preferences"));
         auto quit_item = Gtk::manage(new Gtk::MenuItem("Quit"));
-
         file_menu->append(*add_org_item);
-        file_menu->append(*m_add_project_item);
-        file_menu->append(*m_add_connection_item);
         file_menu->append(*prefs_item);
         file_menu->append(separator);
         file_menu->append(*quit_item);
-
         add_org_item->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_add_organization_click));
-        m_add_project_item->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_add_project_click));
-        m_add_project_item->set_sensitive(false);
-        m_add_connection_item->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_add_connection_click));
-        m_add_connection_item->set_sensitive(false);
-
         prefs_item->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_preferences_click));
         quit_item->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_quit_click));
-
         m_menubar.append(*file_item);
+
+        // Help Menu
+        auto help_menu = Gtk::manage(new Gtk::Menu());
+        auto help_item = Gtk::manage(new Gtk::MenuItem("_Help", true));
+        help_item->set_submenu(*help_menu);
+        auto usage_item = Gtk::manage(new Gtk::MenuItem("Usage"));
+        auto about_item = Gtk::manage(new Gtk::MenuItem("About"));
+        help_menu->append(*usage_item);
+        help_menu->append(*about_item);
+        usage_item->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_usage_click));
+        about_item->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_about_click));
+        m_menubar.append(*help_item);
         m_main_vbox.pack_start(m_menubar, Gtk::PACK_SHRINK);
 
         // Main layout: Horizontal Paned
@@ -69,13 +71,9 @@ public:
         m_refTreeModel = Gtk::TreeStore::create(m_columns);
         m_treeview.set_model(m_refTreeModel);
         m_treeview.append_column("Connections", m_columns.m_col_name);
-
-        m_treeview.get_selection()->signal_changed().connect(sigc::mem_fun(*this, &MainWindow::on_tree_selection_changed));
         m_treeview.signal_row_activated().connect(sigc::mem_fun(*this, &MainWindow::on_connection_double_clicked));
         m_treeview.signal_button_press_event().connect(sigc::mem_fun(*this, &MainWindow::on_tree_button_press_event), false);
-
         m_scrolled_window.add(m_treeview);
-
         m_scrolled_window.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
         m_left_box.pack_start(m_scrolled_window, Gtk::PACK_EXPAND_WIDGET);
 
@@ -109,6 +107,19 @@ public:
             } catch (const std::exception& ex) {
                 std::cerr << "CSS Error: " << ex.what() << std::endl;
             }
+        }
+
+        // Load and Set Icon
+        try {
+            auto loader = Gdk::PixbufLoader::create();
+            loader->write((const guint8*)APP_ICON_SVG.c_str(), APP_ICON_SVG.length());
+            loader->close();
+            m_app_icon = loader->get_pixbuf();
+            if (m_app_icon) {
+                set_icon(m_app_icon);
+            }
+        } catch (const std::exception& ex) {
+            std::cerr << "Icon Error: " << ex.what() << std::endl;
         }
 
         show_all_children();
@@ -151,21 +162,6 @@ public:
         m_treeview.expand_all();
     }
 
-    // Updates the state of menu items and toolbar buttons based on the user's selection.
-    // Disables project or connection actions if the selection context is inappropriate.
-    void on_tree_selection_changed() {
-        auto iter = m_treeview.get_selection()->get_selected();
-        if (iter) {
-            Gtk::TreeModel::Row row = *iter;
-            std::string type = row[m_columns.m_col_type];
-            m_add_project_item->set_sensitive(type == "org");
-            m_add_connection_item->set_sensitive(type == "project");
-        } else {
-            m_add_project_item->set_sensitive(false);
-            m_add_connection_item->set_sensitive(false);
-        }
-    }
-
     // Displays a modal dialog to allow the user to add a new GCP organization.
     // Saves the organization details to a local configuration file for persistence.
     void on_add_organization_click() {
@@ -180,7 +176,7 @@ public:
         }
 
         try {
-            auto j = json::parse(output);
+            auto j = nlohmann::json::parse(output);
             Gtk::Dialog dialog("Add Organization", *this, true);
             Gtk::ComboBoxText combo;
 
@@ -320,7 +316,7 @@ public:
             if (fetch_done) {
                 if (!projects_json.empty()) {
                     try {
-                        auto j = json::parse(projects_json);
+                        auto j = nlohmann::json::parse(projects_json);
                         for (const auto& p : j) {
                             std::string full_name = p.value("name", "");
                             std::string pid = full_name;
@@ -545,6 +541,10 @@ public:
                         auto del_conn = Gtk::manage(new Gtk::MenuItem("Delete Connection"));
                         del_conn->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_delete_connection_click));
                         menu->append(*del_conn);
+
+                        auto edit_conn = Gtk::manage(new Gtk::MenuItem("Edit Connection"));
+                        edit_conn->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_edit_connection_click));
+                        menu->append(*edit_conn);
                     }
                 }
             } else {
@@ -606,6 +606,37 @@ public:
         if (dialog.run() == Gtk::RESPONSE_OK) {
             ConnectionManager::delete_connection(projectId, id);
             load_tree_data();
+        }
+    }
+
+    void on_edit_connection_click() {
+        auto iter = m_treeview.get_selection()->get_selected();
+        if (!iter) return;
+        Gtk::TreeModel::Row row = *iter;
+        std::string name = row[m_columns.m_col_name];
+        std::string id = row[m_columns.m_col_id];
+        std::string projectId = row[m_columns.m_col_project_id];
+        std::string connType = row[m_columns.m_col_conn_type];
+        std::string zone = row[m_columns.m_col_zone];
+        int port = row[m_columns.m_col_port];
+
+        if (connType == "SSH") {
+            Gtk::MessageDialog msg(*this, "There are no editable settings for SSH connections.", false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK);
+            msg.run();
+        } else if (connType == "RDP") {
+            ConnectionInfo ci;
+            ci.id = id;
+            ci.name = name;
+            ci.projectId = projectId;
+            ci.type = connType;
+            ci.zone = zone;
+            ci.port = port;
+            ci.username = row[m_columns.m_col_username];
+            ci.password = row[m_columns.m_col_password];
+
+            if (ConnectionManager::prompt_rdp_credentials(*this, ci)) {
+                load_tree_data();
+            }
         }
     }
 
@@ -729,6 +760,79 @@ public:
         });
     }
 
+    void on_usage_click() {
+        Gtk::Dialog dialog("Usage Documentation", *this, true);
+        dialog.set_default_size(650, 550);
+
+        auto content = dialog.get_content_area();
+        content->set_spacing(0);
+
+        auto sw = Gtk::manage(new Gtk::ScrolledWindow());
+        sw->set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
+        sw->set_border_width(15);
+
+        auto label = Gtk::manage(new Gtk::Label());
+        label->set_use_markup(true);
+        label->set_line_wrap(true);
+        label->set_xalign(0.0);
+        label->set_yalign(0.0);
+        label->set_markup(
+            "<span size='large' weight='bold'>iapRemote Usage Guide</span>\n\n"
+            "<b>Introduction</b>\n"
+            "iapRemote is a native GTK application designed to manage Google Cloud Platform (GCP) "
+            "compute instances via Identity-Aware Proxy (IAP). It provides a unified interface for "
+            "both SSH and RDP connections without requiring public IP addresses.\n\n"
+            "<b>1. Initial Setup</b>\n"
+            "• Ensure the Google Cloud SDK (gcloud) is installed on your system.\n"
+            "• Run <tt>gcloud auth login</tt> in a terminal to authenticate your account.\n"
+            "• Ensure your IAM user has the <tt>roles/iap.tunnelResourceAccessor</tt> role.\n\n"
+            "<b>2. Managing Organizations and Projects</b>\n"
+            "• Use <b>File → Add Organization</b> to import your GCP organizations.\n"
+            "• Right-click an organization in the sidebar to <b>Add Projects</b>. You can use the search bar and regex filter to find specific projects.\n"
+            "• Projects and organizations can be reordered or deleted via the right-click context menu.\n\n"
+            "<b>3. Connecting to Instances</b>\n"
+            "• Right-click a project and select <b>Add Connection</b> to discover available VM instances.\n"
+            "• Choose <b>SSH</b> for a native terminal session (powered by VTE).\n"
+            "• Choose <b>RDP</b> for a Remote Desktop session (powered by FreeRDP). RDP sessions are seamlessly embedded into the application tabs.\n\n"
+            "<b>4. Session Management</b>\n"
+            "• Double-click any instance in the sidebar to initiate a connection.\n"
+            "• Each connection opens in a new tab. Closing a tab will automatically terminate the underlying IAP tunnel.\n"
+            "• For RDP, you can save your credentials locally. They are stored using <b>AES-256 encryption</b>.\n\n"
+            "<b>5. Preferences</b>\n"
+            "• Access <b>File → Preferences</b> to configure application behavior, such as saving the window size and sidebar position on exit.\n\n"
+            "<b>Troubleshooting</b>\n"
+            "If connections fail, verify that your gcloud session hasn't expired by clicking <b>Authenticate</b> in the organization context menu. "
+            "You can also run iapRemote with the <tt>--debug</tt> flag to see detailed logs."
+        );
+
+        sw->add(*label);
+        content->pack_start(*sw, Gtk::PACK_EXPAND_WIDGET);
+
+        dialog.add_button("Close", Gtk::RESPONSE_CLOSE);
+        dialog.show_all_children();
+        dialog.run();
+    }
+
+    void on_about_click() {
+        Gtk::AboutDialog about;
+        about.set_transient_for(*this);
+        about.set_program_name("iapRemote");
+        about.set_version("1.0.0");
+        about.set_copyright("Copyright © 2026");
+        about.set_comments("Unified RDP and SSH over IAP (Identity-Aware Proxy) client for Google Cloud Platform");
+        about.set_website("https://github.com/jmenon-mwp/iapRemote");
+        about.set_website_label("GitHub Project Page");
+
+        std::vector<Glib::ustring> authors;
+        authors.push_back("Jayan Menon with Google Gemini");
+        about.set_authors(authors);
+
+        // We will set the logo when we have the icon embedded
+        if (m_app_icon) about.set_logo(m_app_icon);
+
+        about.run();
+    }
+
 protected:
     // Tree Model Columns
     class ModelColumns : public Gtk::TreeModel::ColumnRecord {
@@ -766,8 +870,6 @@ protected:
     ProjectModelColumns m_proj_cols;
     Glib::RefPtr<Gtk::TreeStore> m_refTreeModel;
     Gtk::TreeView m_treeview;
-    Gtk::MenuItem* m_add_project_item;
-    Gtk::MenuItem* m_add_connection_item;
 
     Gtk::ScrolledWindow m_scrolled_window;
 
@@ -783,6 +885,7 @@ protected:
     Gtk::Notebook m_notebook;
     std::map<std::string, Gtk::Widget*> m_connection_to_tab;
     Gtk::TreeModel::Path m_drag_src_path;
+    Glib::RefPtr<Gdk::Pixbuf> m_app_icon;
 };
 
 // The application entry point that initializes the GTK environment and parses command line arguments.
@@ -793,8 +896,7 @@ int main(int argc, char* argv[]) {
             ConnectionManager::set_debug(true);
         }
     }
-    auto app = Gtk::Application::create(argc, argv, "com.iap.remote");
+    auto app = Gtk::Application::create(argc, argv, "com.iap.remote", Gio::APPLICATION_NON_UNIQUE);
     MainWindow window;
     return app->run(window);
 }
-

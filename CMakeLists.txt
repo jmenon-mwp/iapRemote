@@ -4,16 +4,28 @@ project(iapRemote)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Configure PkgConfig to find vcpkg libraries if on Linux
+# Configure Search Paths for vcpkg if on Linux
 if(UNIX AND NOT APPLE)
-    set(ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/opt/vcpkg/installed/x64-linux/lib/pkgconfig")
+    set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH};/opt/vcpkg/installed/x64-linux")
 endif()
 
+# Find Google Cloud C++ IAP
+find_package(google_cloud_cpp_iap REQUIRED)
+
+# Find OpenSSL (Crypto)
+find_package(OpenSSL REQUIRED)
+
+# Find nlohmann_json
+find_package(nlohmann_json REQUIRED)
+
+# Find GTK and VTE (Still using PkgConfig as they are system libraries)
 find_package(PkgConfig REQUIRED)
+if(STATIC_BUILD)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++ -static-libgcc")
+endif()
+
 pkg_check_modules(GTKMM REQUIRED IMPORTED_TARGET gtkmm-3.0)
 pkg_check_modules(VTE REQUIRED IMPORTED_TARGET vte-2.91)
-pkg_check_modules(GCP_IAP REQUIRED IMPORTED_TARGET google_cloud_cpp_iap)
-pkg_check_modules(CRYPTO REQUIRED IMPORTED_TARGET libcrypto)
 
 add_executable(iapRemote
     main.cpp
@@ -23,10 +35,11 @@ add_executable(iapRemote
 
 target_link_libraries(iapRemote
     PRIVATE
+    google-cloud-cpp::iap
+    OpenSSL::Crypto
+    nlohmann_json::nlohmann_json
     PkgConfig::GTKMM
     PkgConfig::VTE
-    PkgConfig::GCP_IAP
-    PkgConfig::CRYPTO
 )
 
 # Platform specific configurations
