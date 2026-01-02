@@ -99,9 +99,14 @@ public:
 
         // Load CSS for styling
         auto css_provider = Gtk::CssProvider::create();
-        if (std::filesystem::exists("styles.css")) {
+        std::string css_path = "styles.css";
+        if (!std::filesystem::exists(css_path)) {
+            css_path = "/usr/share/iapRemote/styles.css";
+        }
+
+        if (std::filesystem::exists(css_path)) {
             try {
-                css_provider->load_from_path("styles.css");
+                css_provider->load_from_path(css_path);
                 auto screen = Gdk::Screen::get_default();
                 Gtk::StyleContext::add_provider_for_screen(screen, css_provider, GTK_STYLE_PROVIDER_PRIORITY_USER);
             } catch (const std::exception& ex) {

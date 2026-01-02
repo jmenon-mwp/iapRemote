@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=iapRemote
+Comment=Secure IAP Tunneling Client for GCP
+Exec=/usr/bin/iapRemote
+Icon=iapRemote
+Terminal=false
+Categories=Network;RemoteAccess;Development;
+Keywords=gcp;iap;ssh;rdp;tunnel;

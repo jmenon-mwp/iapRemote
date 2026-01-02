@@ -1,0 +1,11 @@
+Package: iapremote
+Version: 1.0.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Depends: libgtkmm-3.0-1v5, libvte-2.91-0, libssl3, google-cloud-cli | google-cloud-sdk, freerdp2-x11
+Maintainer: Jayan Menon <jayan.menon@mavenwave.com>
+Description: iapRemote - Secure IAP Tunneling Client
+ A desktop utility to manage and connect to Google Cloud instances
+ via Identity-Aware Proxy (IAP) tunnels for SSH and RDP.
+ Built for Ubuntu-based systems (Ubuntu, Linux Mint, etc).
