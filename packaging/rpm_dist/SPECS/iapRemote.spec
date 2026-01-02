@@ -20,7 +20,7 @@ via Identity-Aware Proxy (IAP) tunnels for SSH and RDP.
 %autosetup
 
 %build
-%cmake
+%cmake %{?extra_cmake_flags}
 %cmake_build
 
 %install

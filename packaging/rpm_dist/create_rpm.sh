@@ -37,7 +37,7 @@ cp packaging/rpm_dist/SPECS/iapRemote.spec "$RPMBUILD_ROOT/SPECS/"
 
 echo "Starting rpmbuild..."
 if command -v rpmbuild >/dev/null 2>&1; then
-    rpmbuild -ba --define "_topdir $RPMBUILD_ROOT" "$RPMBUILD_ROOT/SPECS/iapRemote.spec"
+    rpmbuild -ba --define "_topdir $RPMBUILD_ROOT" --define "extra_cmake_flags $EXTRA_CMAKE_FLAGS" "$RPMBUILD_ROOT/SPECS/iapRemote.spec"
     
     echo "Success! RPM packages created in $RPMBUILD_ROOT/RPMS/"
     ls -R "$RPMBUILD_ROOT/RPMS/"
