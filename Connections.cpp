@@ -14,6 +14,7 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/buffer.h>
+#include <regex>
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
@@ -435,10 +436,33 @@ void ConnectionManager::authenticate_user(Gtk::Window& parent, std::function<voi
     content->pack_start(*term_widget, Gtk::PACK_EXPAND_WIDGET);
     term_widget->show();
 
+    Gtk::Box* button_box = dialog.get_action_area();
+    Gtk::Button* select_all_btn = Gtk::manage(new Gtk::Button("Select All"));
+    Gtk::Button* copy_btn = Gtk::manage(new Gtk::Button("Copy Selection"));
+
+    button_box->pack_start(*select_all_btn, Gtk::PACK_SHRINK);
+    button_box->pack_start(*copy_btn, Gtk::PACK_SHRINK);
+
+    select_all_btn->show();
+    copy_btn->show();
+
+    select_all_btn->signal_clicked().connect([terminal](){
+        vte_terminal_select_all(terminal);
+    });
+
+    copy_btn->signal_clicked().connect([terminal](){
+        vte_terminal_copy_clipboard_format(terminal, VTE_FORMAT_TEXT);
+    });
+
+    // Instructions
+    auto label = Gtk::manage(new Gtk::Label("Log in via the link below. Default browser launch DISABLED.\nClick URL then 'Copy Selection' to paste in your browser."));
+    content->pack_start(*label, Gtk::PACK_SHRINK);
+    label->show();
+
     dialog.add_button("Close", Gtk::RESPONSE_CLOSE);
 
     char* argv_browser[] = {
-        (char*)"gcloud", (char*)"auth", (char*)"login",
+        (char*)"gcloud", (char*)"auth", (char*)"login", (char*)"--no-launch-browser",
         NULL
     };
 

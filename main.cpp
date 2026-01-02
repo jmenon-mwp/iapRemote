@@ -56,11 +56,6 @@ public:
         m_menubar.append(*file_item);
         m_main_vbox.pack_start(m_menubar, Gtk::PACK_SHRINK);
 
-        // Toolbar
-        m_toolbar.set_name("app_toolbar");
-        m_toolbar.set_size_request(-1, 24);
-        m_main_vbox.pack_start(m_toolbar, Gtk::PACK_SHRINK);
-
         // Main layout: Horizontal Paned
         m_paned.set_orientation(Gtk::ORIENTATION_HORIZONTAL);
         m_main_vbox.pack_start(m_paned, Gtk::PACK_EXPAND_WIDGET);
@@ -606,20 +601,12 @@ public:
     }
 
     void on_authenticate_click() {
-        if (ConnectionManager::verify_auth()) {
-            Gtk::MessageDialog dialog(*this, "Authentication", false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK_CANCEL);
-            dialog.set_secondary_text("You are already authenticated with Google Cloud.\nDo you want to re-configure the default project?");
-
-            if (dialog.run() == Gtk::RESPONSE_OK) {
-                ConnectionManager::configure_default_project(*this, nullptr);
-            }
-        } else {
-            ConnectionManager::authenticate_user(*this, [this]() {
-                Gtk::MessageDialog dialog(*this, "Authentication Successful", false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK);
-                dialog.run();
-                ConnectionManager::configure_default_project(*this, nullptr);
-            });
-        }
+        // User requested to force authentication when clicking this menu item.
+        ConnectionManager::authenticate_user(*this, [this]() {
+            Gtk::MessageDialog dialog(*this, "Authentication Successful", false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK);
+            dialog.run();
+            ConnectionManager::configure_default_project(*this, nullptr);
+        });
     }
 
 protected:
@@ -668,7 +655,6 @@ protected:
     int m_height;
     Gtk::Box m_main_vbox{Gtk::ORIENTATION_VERTICAL};
     Gtk::MenuBar m_menubar;
-    Gtk::Toolbar m_toolbar;
     Gtk::SeparatorMenuItem separator;
     Gtk::Paned m_paned;
     Gtk::Box m_left_box{Gtk::ORIENTATION_VERTICAL};
