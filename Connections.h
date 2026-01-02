@@ -72,6 +72,11 @@ public:
     // Deletes a specific connection from a project.
     static void delete_connection(const std::string& projectId, const std::string& connectionId);
 
+    // Reorders and saves projects for an organization based on the provided ID order.
+    static void save_project_order(const std::string& orgId, const std::vector<std::string>& projectIds);
+    // Reorders and saves connections for a project based on the provided ID order.
+    static void save_connection_order(const std::string& projectId, const std::vector<std::string>& connectionIds);
+
     // Checks if the user is authenticated by listing organizations.
     static bool verify_auth();
     // Initiates the gcloud authentication flow via a terminal dialog.

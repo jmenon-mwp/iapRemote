@@ -264,6 +264,80 @@ void ConnectionManager::save_connections(const std::string& projectId, const std
     outfile << updated.dump(4);
 }
 
+void ConnectionManager::save_project_order(const std::string& orgId, const std::vector<std::string>& projectIds) {
+    std::ifstream file(get_projects_config_path());
+    if (!file.is_open()) return;
+
+    json j;
+    try { file >> j; } catch (...) { return; }
+    file.close();
+
+    std::map<std::string, json> org_items;
+    json others = json::array();
+
+    for (const auto& item : j) {
+        if (item.value("organizationId", "") == orgId) {
+            org_items[item.value("id", "")] = item;
+        } else {
+            others.push_back(item);
+        }
+    }
+
+    json updated = others;
+    for (const auto& pid : projectIds) {
+        if (org_items.count(pid)) {
+            updated.push_back(org_items[pid]);
+        }
+    }
+
+    // Add back any that might have been missed (defensive)
+    for (auto const& [key, val] : org_items) {
+        bool found = false;
+        for(const auto& pid : projectIds) if(pid == key) found = true;
+        if(!found) updated.push_back(val);
+    }
+
+    std::ofstream outfile(get_projects_config_path());
+    outfile << updated.dump(4);
+}
+
+void ConnectionManager::save_connection_order(const std::string& projectId, const std::vector<std::string>& connectionIds) {
+    std::ifstream file(get_connections_config_path());
+    if (!file.is_open()) return;
+
+    json j;
+    try { file >> j; } catch (...) { return; }
+    file.close();
+
+    std::map<std::string, json> proj_items;
+    json others = json::array();
+
+    for (const auto& item : j) {
+        if (item.value("projectId", "") == projectId) {
+            proj_items[item.value("id", "")] = item;
+        } else {
+            others.push_back(item);
+        }
+    }
+
+    json updated = others;
+    for (const auto& cid : connectionIds) {
+        if (proj_items.count(cid)) {
+            updated.push_back(proj_items[cid]);
+        }
+    }
+
+    // Add back missed
+    for (auto const& [key, val] : proj_items) {
+        bool found = false;
+        for(const auto& cid : connectionIds) if(cid == key) found = true;
+        if(!found) updated.push_back(val);
+    }
+
+    std::ofstream outfile(get_connections_config_path());
+    outfile << updated.dump(4);
+}
+
 std::string ConnectionManager::get_preferences_config_path() {
     std::string home = std::getenv("HOME");
     return home + "/.config/iapRemote/preferences.json";

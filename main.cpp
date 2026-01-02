@@ -4,6 +4,7 @@
 #include <thread>
 #include <map>
 #include <regex>
+#include <optional>
 
 using json = nlohmann::json;
 
@@ -409,7 +410,7 @@ public:
                 m_notebook.set_current_page(page_num);
                 return;
             } else {
-                 m_connection_to_tab.erase(key);
+                m_connection_to_tab.erase(key);
             }
         }
 
@@ -464,11 +465,11 @@ public:
             // We save immediately so the flag is updated.
             // Width/Height will be updated on exit, but we can save current state now just in case.
             if (m_prefs.save_window_size) {
-                 int w, h;
-                 get_size(w, h);
-                 m_prefs.window_width = w;
-                 m_prefs.window_height = h;
-                 m_prefs.sidebar_width = m_paned.get_position();
+                int w, h;
+                get_size(w, h);
+                m_prefs.window_width = w;
+                m_prefs.window_height = h;
+                m_prefs.sidebar_width = m_paned.get_position();
             }
             ConnectionManager::save_preferences(m_prefs);
         }
@@ -478,12 +479,12 @@ public:
     // Ensures the main window is hidden and resources are released.
     void on_quit_click() {
         if (m_prefs.save_window_size) {
-             int w, h;
-             get_size(w, h);
-             m_prefs.window_width = w;
-             m_prefs.window_height = h;
-             m_prefs.sidebar_width = m_paned.get_position();
-             ConnectionManager::save_preferences(m_prefs);
+            int w, h;
+            get_size(w, h);
+            m_prefs.window_width = w;
+            m_prefs.window_height = h;
+            m_prefs.sidebar_width = m_paned.get_position();
+            ConnectionManager::save_preferences(m_prefs);
         }
         ConnectionManager::cleanup();
         hide();
@@ -515,6 +516,10 @@ public:
                         del_org->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_delete_organization_click));
                         menu->append(*del_org);
 
+                        auto reorder_org = Gtk::manage(new Gtk::MenuItem("Reorder Projects"));
+                        reorder_org->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_reorder_projects_click));
+                        menu->append(*reorder_org);
+
                         auto auth_item = Gtk::manage(new Gtk::MenuItem("Authenticate"));
                         auth_item->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_authenticate_click));
                         menu->append(*auth_item);
@@ -526,6 +531,10 @@ public:
                         auto del_proj = Gtk::manage(new Gtk::MenuItem("Delete Project"));
                         del_proj->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_delete_project_click));
                         menu->append(*del_proj);
+
+                        auto reorder_proj = Gtk::manage(new Gtk::MenuItem("Reorder Connections"));
+                        reorder_proj->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_reorder_connections_click));
+                        menu->append(*reorder_proj);
                     } else if (type == "connection") {
                         auto connect_item = Gtk::manage(new Gtk::MenuItem("Connect"));
                         connect_item->signal_activate().connect([this, path, column]() {
@@ -600,6 +609,117 @@ public:
         }
     }
 
+    // Generic helper for reordering list
+    std::optional<std::vector<std::string>> show_reorder_dialog(const std::string& title, const std::vector<std::pair<std::string, std::string>>& items) {
+        Gtk::Dialog dialog(title, *this, true);
+        dialog.set_default_size(400, 300);
+
+        struct ReorderCols : public Gtk::TreeModel::ColumnRecord {
+            ReorderCols() { add(m_name); add(m_id); }
+            Gtk::TreeModelColumn<std::string> m_name;
+            Gtk::TreeModelColumn<std::string> m_id;
+        };
+        ReorderCols cols;
+        auto list_store = Gtk::ListStore::create(cols);
+
+        for(const auto& item : items) {
+            auto r = *(list_store->append());
+            r[cols.m_id] = item.first;
+            r[cols.m_name] = item.second;
+        }
+
+        Gtk::TreeView tv;
+        tv.set_model(list_store);
+        tv.append_column("Name", cols.m_name);
+        tv.append_column("ID", cols.m_id);
+
+        Gtk::ScrolledWindow sw;
+        sw.add(tv);
+        sw.set_min_content_height(200);
+
+        Gtk::Box* content = dialog.get_content_area();
+        content->pack_start(sw, Gtk::PACK_EXPAND_WIDGET);
+
+        Gtk::Box btn_box(Gtk::ORIENTATION_HORIZONTAL);
+        btn_box.set_spacing(5);
+
+        Gtk::Button btn_up("Move Up");
+        Gtk::Button btn_down("Move Down");
+        btn_box.pack_start(btn_up, Gtk::PACK_SHRINK);
+        btn_box.pack_start(btn_down, Gtk::PACK_SHRINK);
+
+        content->pack_start(btn_box, Gtk::PACK_SHRINK);
+
+        // Logic
+        auto move_row = [&](int direction) { // -1 up, 1 down
+            auto sel = tv.get_selection();
+            auto it = sel->get_selected();
+            if(it) {
+                auto path = list_store->get_path(it);
+                int idx = path[0]; // Get first index from path
+                int new_idx = idx + direction;
+                if(new_idx >= 0 && new_idx < list_store->children().size()) {
+                    auto it_swap = list_store->get_iter(Gtk::TreePath(std::to_string(new_idx)));
+                    list_store->iter_swap(it, it_swap);
+                }
+            }
+        };
+
+        btn_up.signal_clicked().connect([&](){ move_row(-1); });
+        btn_down.signal_clicked().connect([&](){ move_row(1); });
+
+        dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
+        dialog.add_button("Save Order", Gtk::RESPONSE_OK);
+
+        dialog.show_all_children();
+
+        if(dialog.run() == Gtk::RESPONSE_OK) {
+            std::vector<std::string> ids;
+            auto children = list_store->children();
+            for(auto row : children) {
+                ids.push_back(row[cols.m_id]);
+            }
+            return ids;
+        }
+        return std::nullopt;
+    }
+
+    void on_reorder_projects_click() {
+        auto iter = m_treeview.get_selection()->get_selected();
+        if(!iter) return;
+        Gtk::TreeModel::Row row = *iter;
+        std::string orgId = row[m_columns.m_col_id];
+        std::string orgName = row[m_columns.m_col_name];
+
+        auto projs = ConnectionManager::load_projects(orgId);
+        std::vector<std::pair<std::string, std::string>> items;
+        for(const auto& p : projs) items.push_back({p.id, p.name});
+
+        auto result_ids = show_reorder_dialog("Reorder Projects for " + orgName, items);
+        if(result_ids.has_value()) {
+            ConnectionManager::save_project_order(orgId, result_ids.value());
+            load_tree_data();
+        }
+    }
+
+    void on_reorder_connections_click() {
+        auto iter = m_treeview.get_selection()->get_selected();
+        if(!iter) return;
+        Gtk::TreeModel::Row row = *iter;
+        std::string projId = row[m_columns.m_col_id];
+        std::string projName = row[m_columns.m_col_name];
+
+        auto conns = ConnectionManager::load_connections(projId);
+        std::vector<std::pair<std::string, std::string>> items;
+        for(const auto& c : conns) items.push_back({c.id, c.name});
+
+        auto result_ids = show_reorder_dialog("Reorder Connections for " + projName, items);
+        if(result_ids.has_value()) {
+            ConnectionManager::save_connection_order(projId, result_ids.value());
+            load_tree_data();
+        }
+    }
+
     void on_authenticate_click() {
         // User requested to force authentication when clicking this menu item.
         ConnectionManager::authenticate_user(*this, [this]() {
@@ -653,6 +773,7 @@ protected:
 
     int m_width;
     int m_height;
+    Preferences m_prefs;
     Gtk::Box m_main_vbox{Gtk::ORIENTATION_VERTICAL};
     Gtk::MenuBar m_menubar;
     Gtk::SeparatorMenuItem separator;
@@ -661,7 +782,7 @@ protected:
     Gtk::Box m_right_box{Gtk::ORIENTATION_VERTICAL};
     Gtk::Notebook m_notebook;
     std::map<std::string, Gtk::Widget*> m_connection_to_tab;
-    Preferences m_prefs;
+    Gtk::TreeModel::Path m_drag_src_path;
 };
 
 // The application entry point that initializes the GTK environment and parses command line arguments.
