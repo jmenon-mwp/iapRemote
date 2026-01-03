@@ -7,7 +7,6 @@
       "features": [
         "iap"
       ]
-    },
-    "nlohmann-json"
+    }
   ]
 }

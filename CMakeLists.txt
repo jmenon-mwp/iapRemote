@@ -4,9 +4,11 @@ project(iapRemote)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Configure Search Paths for vcpkg if on Linux
-if(UNIX AND NOT APPLE)
-    set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH};/opt/vcpkg/installed/x64-linux")
+# Configure Search Paths for vcpkg if on Linux and not using a toolchain
+if(UNIX AND NOT APPLE AND NOT CMAKE_TOOLCHAIN_FILE)
+    if(EXISTS "/opt/vcpkg/installed/x64-linux")
+        set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH};/opt/vcpkg/installed/x64-linux")
+    endif()
 endif()
 
 # Find Google Cloud C++ IAP

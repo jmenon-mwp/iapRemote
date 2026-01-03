@@ -53,6 +53,7 @@ CTestTestfile.cmake
 
 # Suggested build directory
 build/
+build_static/
 
 # Editor / IDE
 .vscode/

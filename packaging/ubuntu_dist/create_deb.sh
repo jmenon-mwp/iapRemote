@@ -16,6 +16,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../" && pwd)"
 cd "$PROJECT_ROOT"
 
 echo "Building project from $PROJECT_ROOT..."
+BUILD_DIR=${BUILD_DIR:-build}
+export BUILD_DIR
 make all
 
 # Setup staging directory
@@ -29,7 +31,7 @@ mkdir -p "$STAGE_DIR/DEBIAN"
 
 # Copy files to staging
 echo "Copying files..."
-cp build/iapRemote "$STAGE_DIR/usr/bin/"
+cp "$BUILD_DIR/iapRemote" "$STAGE_DIR/usr/bin/"
 cp styles.css "$STAGE_DIR/usr/share/iapRemote/"
 cp packaging/ubuntu_dist/iapRemote.desktop "$STAGE_DIR/usr/share/applications/"
 cp icon.svg "$STAGE_DIR/usr/share/icons/hicolor/scalable/apps/iapRemote.svg"
