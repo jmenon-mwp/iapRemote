@@ -125,7 +125,7 @@ void ConnectionManager::save_organization(const OrganizationInfo& org) {
 
 // Fetches the list of projects associated with a specific organization.
 // Filters the global project list by the provided organization ID.
-std::vector<ProjectInfo> ConnectionManager::load_projects(const std::string& orgId) {
+std::vector<ProjectInfo> ConnectionManager::load_projects(const std::string& parentId) {
     std::vector<ProjectInfo> projects;
     std::ifstream file(get_projects_config_path());
     if (!file.is_open()) return projects;
@@ -134,17 +134,19 @@ std::vector<ProjectInfo> ConnectionManager::load_projects(const std::string& org
         json j;
         file >> j;
         for (auto& item : j) {
-            if (item.value("organizationId", "") == orgId) {
-                projects.push_back({item.value("id", ""), item.value("name", ""), orgId});
+            // Check both current parentId and legacy organizationId
+            std::string pid = item.value("parentId", "");
+            if (pid.empty()) pid = item.value("organizationId", "");
+
+            if (pid == parentId) {
+                projects.push_back({item.value("id", ""), item.value("name", ""), parentId});
             }
         }
     } catch (...) {}
     return projects;
 }
 
-// Updates the project list for a specific organization in storage.
-// Merges new project data with existing records to keep the config synchronized.
-void ConnectionManager::save_projects(const std::string& orgId, const std::vector<ProjectInfo>& newProjects) {
+void ConnectionManager::save_projects(const std::string& parentId, const std::vector<ProjectInfo>& newProjects) {
     std::ifstream infile(get_projects_config_path());
     json j = json::array();
     if (infile.is_open()) {
@@ -152,29 +154,28 @@ void ConnectionManager::save_projects(const std::string& orgId, const std::vecto
     }
     infile.close();
 
-    // Use a map or set to track IDs for the current organization to avoid duplicates
-    std::unordered_map<std::string, ProjectInfo> orgProjects;
-
+    std::unordered_map<std::string, ProjectInfo> parentProj;
     json others = json::array();
     for (auto& item : j) {
-        if (item.value("organizationId", "") == orgId) {
-            std::string pid = item.value("id", "");
-            orgProjects[pid] = {pid, item.value("name", ""), orgId};
+        std::string pid = item.value("parentId", "");
+        if (pid.empty()) pid = item.value("organizationId", "");
+
+        if (pid == parentId) {
+            std::string id = item.value("id", "");
+            parentProj[id] = {id, item.value("name", ""), parentId};
         } else {
             others.push_back(item);
         }
     }
 
-    // Merge new projects
     for (const auto& p : newProjects) {
-        orgProjects[p.id] = p; // This will overwrite name if it changed, but keep the record
+        parentProj[p.id] = p;
     }
 
-    // Combine everything back
     json updated = others;
-    for (const auto& pair : orgProjects) {
+    for (const auto& pair : parentProj) {
         const auto& p = pair.second;
-        updated.push_back({{"id", p.id}, {"name", p.name}, {"organizationId", orgId}});
+        updated.push_back({{"id", p.id}, {"name", p.name}, {"parentId", parentId}});
     }
 
     std::ofstream outfile(get_projects_config_path());
@@ -280,7 +281,10 @@ void ConnectionManager::save_project_order(const std::string& orgId, const std::
     json others = json::array();
 
     for (const auto& item : j) {
-        if (item.value("organizationId", "") == orgId) {
+        std::string pid = item.value("parentId", "");
+        if (pid.empty()) pid = item.value("organizationId", "");
+
+        if (pid == orgId) {
             org_items[item.value("id", "")] = item;
         } else {
             others.push_back(item);
@@ -429,6 +433,29 @@ void ConnectionManager::delete_project(const std::string& projectId) {
     poutfile << p_updated.dump(4);
 }
 
+void ConnectionManager::move_project(const std::string& projectId, const std::string& newParentId) {
+    std::ifstream file(get_projects_config_path());
+    if (!file.is_open()) return;
+    json j;
+    try { file >> j; } catch (...) { return; }
+    file.close();
+
+    bool found = false;
+    for (auto& item : j) {
+        if (item.value("id", "") == projectId) {
+            item["parentId"] = newParentId;
+            if (item.contains("organizationId")) item.erase("organizationId");
+            found = true;
+            break;
+        }
+    }
+
+    if (found) {
+        std::ofstream outfile(get_projects_config_path());
+        outfile << j.dump(4);
+    }
+}
+
 void ConnectionManager::delete_organization(const std::string& orgId) {
     // 1. Identify projects to delete
     std::vector<std::string> projectsToDelete;
@@ -439,13 +466,16 @@ void ConnectionManager::delete_organization(const std::string& orgId) {
         pfile.close();
 
         json p_updated = json::array();
-        for (const auto& item : pj) {
-            if (item.value("organizationId", "") == orgId) {
-                projectsToDelete.push_back(item.value("id", ""));
-            } else {
-                p_updated.push_back(item);
-            }
+    for (const auto& item : pj) {
+        std::string ppid = item.value("parentId", "");
+        if (ppid.empty()) ppid = item.value("organizationId", "");
+
+        if (ppid == orgId) {
+            projectsToDelete.push_back(item.value("id", ""));
+        } else {
+            p_updated.push_back(item);
         }
+    }
 
         // Save updated projects (removed)
         std::ofstream poutfile(get_projects_config_path());
@@ -1148,4 +1178,126 @@ std::string ConnectionManager::decrypt_value(const std::string& value) {
     EVP_CIPHER_CTX_free(ctx);
 
     return std::string((char*)decrypted.data(), plaintext_len);
+}
+
+std::string ConnectionManager::get_folders_config_path() {
+    std::string home = std::getenv("HOME");
+    return home + "/.config/iapRemote/folders.json";
+}
+
+std::vector<FolderInfo> ConnectionManager::load_folders(const std::string& parentId) {
+    std::vector<FolderInfo> folders;
+    std::ifstream file(get_folders_config_path());
+    if (!file.is_open()) return folders;
+
+    try {
+        json j;
+        file >> j;
+        for (auto& item : j) {
+            if (item.value("parentId", "") == parentId) {
+                folders.push_back({item.value("id", ""), item.value("name", ""), parentId});
+            }
+        }
+    } catch (...) {}
+    return folders;
+}
+
+void ConnectionManager::save_folders(const std::string& parentId, const std::vector<FolderInfo>& newFolders) {
+    std::ifstream infile(get_folders_config_path());
+    json j = json::array();
+    if (infile.is_open()) {
+        try { infile >> j; } catch (...) { j = json::array(); }
+    }
+    infile.close();
+
+    std::unordered_map<std::string, FolderInfo> parentFolders;
+    json others = json::array();
+    for (auto& item : j) {
+        if (item.value("parentId", "") == parentId) {
+            std::string fid = item.value("id", "");
+            parentFolders[fid] = {fid, item.value("name", ""), parentId};
+        } else {
+            others.push_back(item);
+        }
+    }
+
+    for (const auto& f : newFolders) {
+        parentFolders[f.id] = f;
+    }
+
+    json updated = others;
+    for (const auto& pair : parentFolders) {
+        const auto& f = pair.second;
+        updated.push_back({{"id", f.id}, {"name", f.name}, {"parentId", parentId}});
+    }
+
+    std::ofstream outfile(get_folders_config_path());
+    outfile << updated.dump(4);
+}
+
+void ConnectionManager::save_folder_order(const std::string& parentId, const std::vector<std::string>& folderIds) {
+    std::ifstream file(get_folders_config_path());
+    if (!file.is_open()) return;
+
+    json j;
+    try { file >> j; } catch (...) { return; }
+    file.close();
+
+    std::map<std::string, json> folder_items;
+    json others = json::array();
+
+    for (const auto& item : j) {
+        if (item.value("parentId", "") == parentId) {
+            folder_items[item.value("id", "")] = item;
+        } else {
+            others.push_back(item);
+        }
+    }
+
+    json updated = others;
+    for (const auto& fid : folderIds) {
+        if (folder_items.count(fid)) {
+            updated.push_back(folder_items[fid]);
+        }
+    }
+
+    for (auto const& [key, val] : folder_items) {
+        bool found = false;
+        for(const auto& fid : folderIds) if(fid == key) found = true;
+        if(!found) updated.push_back(val);
+    }
+
+    std::ofstream outfile(get_folders_config_path());
+    outfile << updated.dump(4);
+}
+
+void ConnectionManager::delete_folder(const std::string& folderId) {
+    // 1. Delete associated projects
+    auto projects = load_projects(folderId);
+    for (const auto& p : projects) {
+        delete_project(p.id);
+    }
+
+    // 2. Delete child folders (recursive)
+    auto childFolders = load_folders(folderId);
+    for (const auto& f : childFolders) {
+        delete_folder(f.id);
+    }
+
+    // 3. Delete the folder itself
+    std::ifstream ffile(get_folders_config_path());
+    if (!ffile.is_open()) return;
+
+    json fj;
+    try { ffile >> fj; } catch(...) { return; }
+    ffile.close();
+
+    json f_updated = json::array();
+    for (const auto& item : fj) {
+        if (item.value("id", "") == folderId) continue;
+        f_updated.push_back(item);
+    }
+
+    std::ofstream foutfile(get_folders_config_path());
+    foutfile << f_updated.dump(4);
 }

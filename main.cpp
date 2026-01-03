@@ -130,8 +130,42 @@ public:
         show_all_children();
     }
 
-    // Populates the sidebar with organizations, projects, and instances from local configuration.
-    // Iterates through stored JSON files to build the hierarchical tree structure.
+    void load_tree_node(const Gtk::TreeModel::Row& parent_row, const std::string& parent_id) {
+        // Load folders
+        auto folders = ConnectionManager::load_folders(parent_id);
+        for (const auto& f : folders) {
+            Gtk::TreeModel::Row frow = *(m_refTreeModel->append(parent_row.children()));
+            frow[m_columns.m_col_id] = f.id;
+            frow[m_columns.m_col_name] = f.name;
+            frow[m_columns.m_col_type] = "folder";
+            load_tree_node(frow, f.id);
+        }
+
+        // Load projects
+        auto projects = ConnectionManager::load_projects(parent_id);
+        for (const auto& proj : projects) {
+            Gtk::TreeModel::Row prow = *(m_refTreeModel->append(parent_row.children()));
+            prow[m_columns.m_col_id] = proj.id;
+            prow[m_columns.m_col_name] = proj.name;
+            prow[m_columns.m_col_type] = "project";
+
+            auto connections = ConnectionManager::load_connections(proj.id);
+            for (const auto& conn : connections) {
+                Gtk::TreeModel::Row crow = *(m_refTreeModel->append(prow.children()));
+                crow[m_columns.m_col_id] = conn.id;
+                crow[m_columns.m_col_name] = conn.name;
+
+                crow[m_columns.m_col_type] = "connection";
+                crow[m_columns.m_col_zone] = conn.zone;
+                crow[m_columns.m_col_project_id] = proj.id;
+                crow[m_columns.m_col_port] = conn.port;
+                crow[m_columns.m_col_conn_type] = conn.type;
+                crow[m_columns.m_col_username] = conn.username;
+                crow[m_columns.m_col_password] = conn.password;
+            }
+        }
+    }
+
     void load_tree_data() {
         m_refTreeModel->clear();
         auto orgs = ConnectionManager::load_organizations();
@@ -140,35 +174,11 @@ public:
             row[m_columns.m_col_id] = org.id;
             row[m_columns.m_col_name] = org.name;
             row[m_columns.m_col_type] = "org";
-
-            auto projects = ConnectionManager::load_projects(org.id);
-            for (const auto& proj : projects) {
-                Gtk::TreeModel::Row prow = *(m_refTreeModel->append(row.children()));
-                prow[m_columns.m_col_id] = proj.id;
-                prow[m_columns.m_col_name] = proj.name;
-                prow[m_columns.m_col_type] = "project";
-
-                auto connections = ConnectionManager::load_connections(proj.id);
-                for (const auto& conn : connections) {
-                    Gtk::TreeModel::Row crow = *(m_refTreeModel->append(prow.children()));
-                    crow[m_columns.m_col_id] = conn.id;
-                    crow[m_columns.m_col_name] = conn.name;
-
-                    crow[m_columns.m_col_type] = "connection";
-                    crow[m_columns.m_col_zone] = conn.zone;
-                    crow[m_columns.m_col_project_id] = proj.id;
-                    crow[m_columns.m_col_port] = conn.port;
-                    crow[m_columns.m_col_conn_type] = conn.type;
-                    crow[m_columns.m_col_username] = conn.username;
-                    crow[m_columns.m_col_password] = conn.password;
-                }
-            }
+            load_tree_node(row, org.id);
         }
         m_treeview.expand_all();
     }
 
-    // Displays a modal dialog to allow the user to add a new GCP organization.
-    // Saves the organization details to a local configuration file for persistence.
     void on_add_organization_click() {
         // Simple dialog to fetch and add organization
         std::string output = ConnectionManager::exec_command("gcloud organizations list --format=\"json\" --quiet");
@@ -212,16 +222,123 @@ public:
         }
     }
 
+    void on_add_folder_click() {
+        auto iter = m_treeview.get_selection()->get_selected();
+        if (!iter) return;
+        Gtk::TreeModel::Row row = *iter;
+        std::string parent_id = row[m_columns.m_col_id];
+        std::string type = row[m_columns.m_col_type];
+        std::string parent_name = row[m_columns.m_col_name];
+
+        std::string cmd;
+        if (type == "org") cmd = "gcloud resource-manager folders list --organization=" + parent_id + " --format=json --quiet";
+        else if (type == "folder") cmd = "gcloud resource-manager folders list --folder=" + parent_id + " --format=json --quiet";
+        else return;
+
+        std::string output = ConnectionManager::exec_command(cmd);
+
+        try {
+            Gtk::Dialog dialog("Add Folders to " + parent_name, *this, true);
+            dialog.set_default_size(500, 400);
+
+            Gtk::Box* content = dialog.get_content_area();
+            content->set_spacing(10);
+            content->set_margin_start(12);
+            content->set_margin_end(12);
+            content->set_margin_top(12);
+            content->set_margin_bottom(12);
+
+            struct FolderCols : public Gtk::TreeModel::ColumnRecord {
+                FolderCols() { add(m_col_selected); add(m_col_name); add(m_col_id); }
+                Gtk::TreeModelColumn<bool> m_col_selected;
+                Gtk::TreeModelColumn<std::string> m_col_name;
+                Gtk::TreeModelColumn<std::string> m_col_id;
+            };
+            FolderCols f_cols;
+            auto refFolderModel = Gtk::ListStore::create(f_cols);
+
+            if (!output.empty()) {
+                auto j = nlohmann::json::parse(output);
+                for (const auto& f : j) {
+                    std::string full_name = f.value("name", "");
+                    std::string fid = full_name;
+                    if (fid.find("folders/") == 0) fid = fid.substr(8);
+
+                    auto r = *(refFolderModel->append());
+                    r[f_cols.m_col_selected] = false;
+                    r[f_cols.m_col_name] = f.value("displayName", fid);
+                    r[f_cols.m_col_id] = fid;
+                }
+            }
+
+            auto sw = Gtk::manage(new Gtk::ScrolledWindow());
+            auto folder_list = Gtk::manage(new Gtk::TreeView());
+            folder_list->set_model(refFolderModel);
+            folder_list->append_column_editable("", f_cols.m_col_selected);
+            folder_list->append_column("Display Name", f_cols.m_col_name);
+            folder_list->append_column("Folder ID", f_cols.m_col_id);
+            sw->add(*folder_list);
+            content->pack_start(*sw, Gtk::PACK_EXPAND_WIDGET);
+
+            // Manual Entry
+            auto manual_box = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 5));
+            auto manual_entry_name = Gtk::manage(new Gtk::Entry());
+            manual_entry_name->set_placeholder_text("Folder Name");
+            auto manual_entry_id = Gtk::manage(new Gtk::Entry());
+            manual_entry_id->set_placeholder_text("Folder ID (e.g. 1234567)");
+            auto add_manual_btn = Gtk::manage(new Gtk::Button("Add Manual"));
+
+            manual_box->pack_start(*manual_entry_name, Gtk::PACK_EXPAND_WIDGET);
+            manual_box->pack_start(*manual_entry_id, Gtk::PACK_EXPAND_WIDGET);
+            manual_box->pack_start(*add_manual_btn, Gtk::PACK_SHRINK);
+            content->pack_start(*manual_box, Gtk::PACK_SHRINK);
+
+            add_manual_btn->signal_clicked().connect([=, &f_cols]() {
+                std::string nid = manual_entry_id->get_text();
+                std::string nname = manual_entry_name->get_text();
+                if (!nid.empty() && !nname.empty()) {
+                    auto r = *(refFolderModel->append());
+                    r[f_cols.m_col_selected] = true;
+                    r[f_cols.m_col_name] = nname;
+                    r[f_cols.m_col_id] = nid;
+                    manual_entry_id->set_text("");
+                    manual_entry_name->set_text("");
+                }
+            });
+
+            dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
+            dialog.add_button("OK", Gtk::RESPONSE_OK);
+            dialog.show_all_children();
+
+            if (dialog.run() == Gtk::RESPONSE_OK) {
+                std::vector<FolderInfo> selected;
+                for (auto r : refFolderModel->children()) {
+                    if (r[f_cols.m_col_selected]) {
+                        selected.push_back({r[f_cols.m_col_id], r[f_cols.m_col_name], parent_id});
+                    }
+                }
+                ConnectionManager::save_folders(parent_id, selected);
+                load_tree_data();
+            }
+
+        } catch (...) {
+            Gtk::MessageDialog md(*this, "Error", false, Gtk::MESSAGE_ERROR);
+            md.set_secondary_text("Failed to process folder list.");
+            md.run();
+        }
+    }
+
     // Launches a multi-tier selection process to discovery and add GCP projects to an organization.
     // Communicates with gcloud to list and store project metadata locally.
     void on_add_project_click() {
         auto iter = m_treeview.get_selection()->get_selected();
         if (!iter) return;
         Gtk::TreeModel::Row row = *iter;
-        std::string org_id = row[m_columns.m_col_id];
-        std::string org_name = row[m_columns.m_col_name];
+        std::string parent_id = row[m_columns.m_col_id];
+        std::string parent_name = row[m_columns.m_col_name];
+        std::string type = row[m_columns.m_col_type];
 
-        Gtk::Dialog dialog("Add Projects to " + org_name, *this, true);
+        Gtk::Dialog dialog("Add Projects to " + parent_name, *this, true);
         dialog.set_default_size(550, 450);
 
         Gtk::Box* content = dialog.get_content_area();
@@ -233,11 +350,17 @@ public:
 
         auto loading_box = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 10));
         auto spinner = Gtk::manage(new Gtk::Spinner());
-        auto loading_label = Gtk::manage(new Gtk::Label("Fetching projects from organization..."));
+        auto loading_label = Gtk::manage(new Gtk::Label("Fetching projects..."));
 
         loading_box->pack_start(*spinner, Gtk::PACK_SHRINK);
         loading_box->pack_start(*loading_label, Gtk::PACK_SHRINK);
         content->pack_start(*loading_box, Gtk::PACK_SHRINK);
+
+        // Scope for search
+        std::string scope;
+        if (type == "org") scope = "organizations/" + parent_id;
+        else if (type == "folder") scope = "folders/" + parent_id;
+        else return;
 
         auto filter_entry = Gtk::manage(new Gtk::SearchEntry());
         filter_entry->set_placeholder_text("Filter projects (Regex)...");
@@ -311,8 +434,8 @@ public:
 
         bool fetch_done = false;
         std::string projects_json;
-        std::thread fetch_thread([org_id, &projects_json, &fetch_done]() {
-            projects_json = ConnectionManager::exec_command("gcloud asset search-all-resources --asset-types=cloudresourcemanager.googleapis.com/Project --scope=organizations/" + org_id + " --format=json --quiet");
+        std::thread fetch_thread([scope, &projects_json, &fetch_done]() {
+            projects_json = ConnectionManager::exec_command("gcloud asset search-all-resources --asset-types=cloudresourcemanager.googleapis.com/Project --scope=" + scope + " --format=json --quiet");
             fetch_done = true;
         });
 
@@ -334,18 +457,18 @@ public:
                             r[m_proj_cols.m_col_id] = pid;
                         }
                         if (refProjectModel->children().empty()) {
-                            loading_label->set_text("No projects found in this organization.");
+                            loading_label->set_text("No projects found in this scope.");
                             spinner->stop();
                         } else {
                             loading_box->hide();
                             ok_button->set_sensitive(true);
                         }
                     } catch (...) {
-                        loading_label->set_text("Error parsing project list (maybe gcloud needs login).");
+                        loading_label->set_text("Error parsing project list.");
                         spinner->stop();
                     }
                 } else {
-                    loading_label->set_text("Failed to fetch projects (check gcloud login).");
+                    loading_label->set_text("Failed to fetch projects (Permission denied maybe?).");
                     spinner->stop();
                 }
                 return false; // Stop timeout
@@ -359,10 +482,10 @@ public:
             for (auto it = children.begin(); it != children.end(); ++it) {
                 Gtk::TreeModel::Row r = *it;
                 if (r[m_proj_cols.m_col_selected]) {
-                    selected_projects.push_back({r[m_proj_cols.m_col_id], r[m_proj_cols.m_col_name], org_id});
+                    selected_projects.push_back({r[m_proj_cols.m_col_id], r[m_proj_cols.m_col_name], parent_id});
                 }
             }
-            ConnectionManager::save_projects(org_id, selected_projects);
+            ConnectionManager::save_projects(parent_id, selected_projects);
             load_tree_data();
         }
 
@@ -509,6 +632,10 @@ public:
                     std::string type = row[m_columns.m_col_type];
 
                     if (type == "org") {
+                        auto add_folder = Gtk::manage(new Gtk::MenuItem("Add Folder"));
+                        add_folder->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_add_folder_click));
+                        menu->append(*add_folder);
+
                         auto add_proj = Gtk::manage(new Gtk::MenuItem("Add Project"));
                         add_proj->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_add_project_click));
                         menu->append(*add_proj);
@@ -517,13 +644,29 @@ public:
                         del_org->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_delete_organization_click));
                         menu->append(*del_org);
 
-                        auto reorder_org = Gtk::manage(new Gtk::MenuItem("Reorder Projects"));
-                        reorder_org->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_reorder_projects_click));
+                        auto reorder_org = Gtk::manage(new Gtk::MenuItem("Reorder Child Items"));
+                        reorder_org->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_reorder_folders_click));
                         menu->append(*reorder_org);
 
                         auto auth_item = Gtk::manage(new Gtk::MenuItem("Authenticate"));
                         auth_item->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_authenticate_click));
                         menu->append(*auth_item);
+                    } else if (type == "folder") {
+                        auto add_folder = Gtk::manage(new Gtk::MenuItem("Add Folder"));
+                        add_folder->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_add_folder_click));
+                        menu->append(*add_folder);
+
+                        auto add_proj = Gtk::manage(new Gtk::MenuItem("Add Project"));
+                        add_proj->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_add_project_click));
+                        menu->append(*add_proj);
+
+                        auto del_folder = Gtk::manage(new Gtk::MenuItem("Delete Folder"));
+                        del_folder->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_delete_folder_click));
+                        menu->append(*del_folder);
+
+                        auto reorder_folder = Gtk::manage(new Gtk::MenuItem("Reorder Child Items"));
+                        reorder_folder->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_reorder_folders_click));
+                        menu->append(*reorder_folder);
                     } else if (type == "project") {
                         auto add_conn = Gtk::manage(new Gtk::MenuItem("Add Connection"));
                         add_conn->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_add_connection_click));
@@ -536,6 +679,10 @@ public:
                         auto reorder_proj = Gtk::manage(new Gtk::MenuItem("Reorder Connections"));
                         reorder_proj->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_reorder_connections_click));
                         menu->append(*reorder_proj);
+
+                        auto move_proj = Gtk::manage(new Gtk::MenuItem("Move Project"));
+                        move_proj->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_move_project_click));
+                        menu->append(*move_proj);
                     } else if (type == "connection") {
                         auto connect_item = Gtk::manage(new Gtk::MenuItem("Connect"));
                         connect_item->signal_activate().connect([this, path, column]() {
@@ -573,10 +720,26 @@ public:
         std::string id = row[m_columns.m_col_id];
 
         Gtk::MessageDialog dialog(*this, "Delete Organization?", false, Gtk::MESSAGE_QUESTION, Gtk::BUTTONS_OK_CANCEL);
-        dialog.set_secondary_text("Are you sure you want to delete organization '" + name + "'?\nThis will delete ALL projects and connections associated with it.");
+        dialog.set_secondary_text("Are you sure you want to delete organization '" + name + "'?\nThis will delete ALL folders, projects and connections associated with it.");
 
         if (dialog.run() == Gtk::RESPONSE_OK) {
             ConnectionManager::delete_organization(id);
+            load_tree_data();
+        }
+    }
+
+    void on_delete_folder_click() {
+        auto iter = m_treeview.get_selection()->get_selected();
+        if (!iter) return;
+        Gtk::TreeModel::Row row = *iter;
+        std::string name = row[m_columns.m_col_name];
+        std::string id = row[m_columns.m_col_id];
+
+        Gtk::MessageDialog dialog(*this, "Delete Folder?", false, Gtk::MESSAGE_QUESTION, Gtk::BUTTONS_OK_CANCEL);
+        dialog.set_secondary_text("Are you sure you want to delete folder '" + name + "'?\nThis will delete ALL nested folders, projects and connections associated with it.");
+
+        if (dialog.run() == Gtk::RESPONSE_OK) {
+            ConnectionManager::delete_folder(id);
             load_tree_data();
         }
     }
@@ -720,6 +883,35 @@ public:
         return std::nullopt;
     }
 
+    void on_reorder_folders_click() {
+        auto iter = m_treeview.get_selection()->get_selected();
+        if(!iter) return;
+        Gtk::TreeModel::Row row = *iter;
+        std::string parentId = row[m_columns.m_col_id];
+        std::string parentName = row[m_columns.m_col_name];
+
+        auto folders = ConnectionManager::load_folders(parentId);
+        auto projects = ConnectionManager::load_projects(parentId);
+        
+        std::vector<std::pair<std::string, std::string>> items;
+        for(const auto& f : folders) items.push_back({f.id, "[Folder] " + f.name});
+        for(const auto& p : projects) items.push_back({p.id, "[Project] " + p.name});
+
+        auto result_ids = show_reorder_dialog("Reorder Items for " + parentName, items);
+        if(result_ids.has_value()) {
+            std::vector<std::string> fids, pids;
+            for(const auto& id : result_ids.value()) {
+                bool is_folder = false;
+                for(const auto& f : folders) if(f.id == id) is_folder = true;
+                if(is_folder) fids.push_back(id);
+                else pids.push_back(id);
+            }
+            ConnectionManager::save_folder_order(parentId, fids);
+            ConnectionManager::save_project_order(parentId, pids);
+            load_tree_data();
+        }
+    }
+
     void on_reorder_projects_click() {
         auto iter = m_treeview.get_selection()->get_selected();
         if(!iter) return;
@@ -735,6 +927,76 @@ public:
         if(result_ids.has_value()) {
             ConnectionManager::save_project_order(orgId, result_ids.value());
             load_tree_data();
+        }
+    }
+
+    void on_move_project_click() {
+        auto iter = m_treeview.get_selection()->get_selected();
+        if (!iter) return;
+        Gtk::TreeModel::Row row = *iter;
+        std::string proj_id = row[m_columns.m_col_id];
+        std::string proj_name = row[m_columns.m_col_name];
+
+        auto parent_iter = iter->parent();
+        std::string current_parent_id;
+        if (parent_iter) {
+            current_parent_id = (*parent_iter)[m_columns.m_col_id];
+        }
+
+        Gtk::Dialog dialog("Move Project " + proj_name, *this, true);
+        Gtk::ComboBoxText combo;
+
+        struct ParentOption {
+            std::string id;
+            std::string label;
+        };
+        std::vector<ParentOption> options;
+
+        auto orgs = ConnectionManager::load_organizations();
+        
+        std::function<void(const std::string&, const std::string&)> add_folders_recursively;
+        add_folders_recursively = [&](const std::string& parentId, const std::string& prefix) {
+            auto folders = ConnectionManager::load_folders(parentId);
+            for (const auto& f : folders) {
+                options.push_back({f.id, prefix + "[Folder] " + f.name});
+                add_folders_recursively(f.id, prefix + "  ");
+            }
+        };
+
+        for (const auto& org : orgs) {
+            options.push_back({org.id, "[Org] " + org.name});
+            add_folders_recursively(org.id, "  ");
+        }
+
+        int current_idx = -1;
+        for (size_t i = 0; i < options.size(); ++i) {
+            combo.append(options[i].id, options[i].label);
+            if (options[i].id == current_parent_id) current_idx = (int)i;
+        }
+        
+        if (current_idx != -1) combo.set_active(current_idx);
+        else if (!options.empty()) combo.set_active(0);
+
+        auto content = dialog.get_content_area();
+        content->set_spacing(15);
+        content->set_margin_start(15);
+        content->set_margin_end(15);
+        content->set_margin_top(15);
+        content->set_margin_bottom(15);
+
+        content->pack_start(*Gtk::manage(new Gtk::Label("Select destination folder or organization:")), Gtk::PACK_SHRINK);
+        content->pack_start(combo, Gtk::PACK_SHRINK);
+        
+        dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
+        dialog.add_button("OK", Gtk::RESPONSE_OK);
+        dialog.show_all_children();
+
+        if (dialog.run() == Gtk::RESPONSE_OK) {
+            std::string new_parent = combo.get_active_id();
+            if (!new_parent.empty() && new_parent != current_parent_id) {
+                ConnectionManager::move_project(proj_id, new_parent);
+                load_tree_data();
+            }
         }
     }
 

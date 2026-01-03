@@ -12,10 +12,16 @@ struct OrganizationInfo {
     std::string name;
 };
 
+struct FolderInfo {
+    std::string id;
+    std::string name;
+    std::string parentId;
+};
+
 struct ProjectInfo {
     std::string id;
     std::string name;
-    std::string organizationId;
+    std::string parentId; // Could be organizationId or folderId
 };
 
 struct ConnectionInfo {
@@ -54,13 +60,20 @@ public:
     // Ensures organizations are unique before saving to disk.
     static void save_organization(const OrganizationInfo& org);
 
-    // Retrieves projects associated with a specific organization ID.
-    // Filters the global project list for the selected organization.
-    static std::vector<ProjectInfo> load_projects(const std::string& orgId);
+    // Retrieves projects associated with a specific parent (org or folder).
+    static std::vector<ProjectInfo> load_projects(const std::string& parentId);
 
-    // Persists a list of projects for an organization to disk.
-    // Updates the JSON storage with discovered project metadata.
-    static void save_projects(const std::string& orgId, const std::vector<ProjectInfo>& projects);
+    // Persists a list of projects for a parent to disk.
+    static void save_projects(const std::string& parentId, const std::vector<ProjectInfo>& projects);
+
+    // Retrieves folders associated with a specific parent (org or folder).
+    static std::vector<FolderInfo> load_folders(const std::string& parentId);
+
+    // Persists a list of folders for a parent to disk.
+    static void save_folders(const std::string& parentId, const std::vector<FolderInfo>& folders);
+
+    // Deletes a folder and its associated projects/connections.
+    static void delete_folder(const std::string& folderId);
 
     // Fetches and decrypts connection info for a given project.
     // Restores credentials to plaintext for session initiation.
@@ -78,6 +91,9 @@ public:
 
     // Deletes a specific connection from a project.
     static void delete_connection(const std::string& projectId, const std::string& connectionId);
+
+    // Moves a project to a new parent (organization or folder).
+    static void move_project(const std::string& projectId, const std::string& newParentId);
 
     // Reorders and saves projects for an organization based on the provided ID order.
     static void save_project_order(const std::string& orgId, const std::vector<std::string>& projectIds);
@@ -123,6 +139,12 @@ public:
     // Returns the storage path for detailed connection records.
     // Stores individual instance IDs, zones, and credentials.
     static std::string get_connections_config_path();
+
+    // Returns the storage path for folders.
+    static std::string get_folders_config_path();
+
+    // Reorders and saves folders for a parent based on the provided ID order.
+    static void save_folder_order(const std::string& parentId, const std::vector<std::string>& folderIds);
 
     // Returns the storage path for user preferences.
     static std::string get_preferences_config_path();
