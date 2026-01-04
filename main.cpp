@@ -30,21 +30,24 @@ public:
         // Main Container (Vertical)
         add(m_main_vbox);
 
-        // MenuBar
-        auto file_menu = Gtk::manage(new Gtk::Menu());
-        auto file_item = Gtk::manage(new Gtk::MenuItem("_File", true));
-        file_item->set_submenu(*file_menu);
+        // Actions Menu
+        auto actions_menu = Gtk::manage(new Gtk::Menu());
+        auto actions_item = Gtk::manage(new Gtk::MenuItem("_Actions", true));
+        actions_item->set_submenu(*actions_menu);
+        auto auth_item = Gtk::manage(new Gtk::MenuItem("Authenticate"));
         auto add_org_item = Gtk::manage(new Gtk::MenuItem("Add Organization"));
         auto prefs_item = Gtk::manage(new Gtk::MenuItem("Preferences"));
         auto quit_item = Gtk::manage(new Gtk::MenuItem("Quit"));
-        file_menu->append(*add_org_item);
-        file_menu->append(*prefs_item);
-        file_menu->append(separator);
-        file_menu->append(*quit_item);
+        actions_menu->append(*auth_item);
+        actions_menu->append(*add_org_item);
+        actions_menu->append(*prefs_item);
+        actions_menu->append(separator);
+        actions_menu->append(*quit_item);
+        auth_item->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_authenticate_click));
         add_org_item->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_add_organization_click));
         prefs_item->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_preferences_click));
         quit_item->signal_activate().connect(sigc::mem_fun(*this, &MainWindow::on_quit_click));
-        m_menubar.append(*file_item);
+        m_menubar.append(*actions_item);
 
         // Help Menu
         auto help_menu = Gtk::manage(new Gtk::Menu());
@@ -1099,7 +1102,7 @@ public:
             "• Run <tt>gcloud auth login</tt> in a terminal to authenticate your account.\n"
             "• Ensure your IAM user has the <tt>roles/iap.tunnelResourceAccessor</tt> role.\n\n"
             "<b>2. Managing Hierarchy (Organizations, Folders, and Projects)</b>\n"
-            "• Use <b>File → Add Organization</b> to import your GCP organizations.\n"
+            "• Use <b>Actions → Add Organization</b> to import your GCP organizations.\n"
             "• Right-click an organization or folder to <b>Add Folder</b>. You can discover nested folders or manually enter a Folder ID if parent listing is denied.\n"
             "• Right-click a folder or organization to <b>Add Projects</b>. The search is automatically scoped to your selection.\n"
             "• Use <b>Move Project</b> in the project context menu to relocate a project into a different folder or organization.\n"
@@ -1111,7 +1114,7 @@ public:
             "• Double-click any instance in the sidebar to initiate a connection in a new tab.\n"
             "• For RDP, you can save your credentials locally. They are stored using <b>AES-256 encryption</b> to protect your data.\n\n"
             "<b>5. Preferences</b>\n"
-            "• Access <b>File → Preferences</b> to configure application behavior, such as saving the window size and sidebar position on exit.\n\n"
+            "• Access <b>Actions → Preferences</b> to configure application behavior, such as saving the window size and sidebar position on exit.\n\n"
             "<b>Troubleshooting</b>\n"
             "If connections or project listings fail, click <b>Authenticate</b> in the organization context menu to refresh your gcloud session. "
             "You can also run iapRemote with the <tt>--debug</tt> flag for detailed logs."
