@@ -52,8 +52,9 @@ install_manifest.txt
 CTestTestfile.cmake
 
 # Suggested build directory
-build/
-build_static/
+build*
+*_stage/
+output/
 
 # Editor / IDE
 .vscode/

@@ -370,6 +370,7 @@ public:
         auto project_list = Gtk::manage(new Gtk::TreeView());
         auto refProjectModel = Gtk::ListStore::create(m_proj_cols);
         auto filter_model = Gtk::TreeModelFilter::create(refProjectModel);
+        auto sort_model = Gtk::TreeModelSort::create(filter_model);
 
         filter_model->set_visible_func([this, filter_entry](const Gtk::TreeModel::const_iterator& iter) -> bool {
             std::string text = filter_entry->get_text();
@@ -387,17 +388,20 @@ public:
 
         filter_entry->signal_search_changed().connect([filter_model](){ filter_model->refilter(); });
 
-        project_list->set_model(filter_model);
+        project_list->set_model(sort_model);
 
         auto toggle_cell = Gtk::manage(new Gtk::CellRendererToggle());
-        toggle_cell->signal_toggled().connect([this, filter_model, refProjectModel](const Glib::ustring& path_str) {
+        toggle_cell->signal_toggled().connect([this, sort_model, filter_model, refProjectModel](const Glib::ustring& path_str) {
             Gtk::TreePath path(path_str);
-            auto filter_iter = filter_model->get_iter(path);
-            if (filter_iter) {
-                auto child_iter = filter_model->convert_iter_to_child_iter(filter_iter);
-                if (child_iter) {
-                    bool current = (*child_iter)[m_proj_cols.m_col_selected];
-                    (*child_iter)[m_proj_cols.m_col_selected] = !current;
+            auto sort_iter = sort_model->get_iter(path);
+            if (sort_iter) {
+                auto filter_iter = sort_model->convert_iter_to_child_iter(sort_iter);
+                if (filter_iter) {
+                    auto child_iter = filter_model->convert_iter_to_child_iter(filter_iter);
+                    if (child_iter) {
+                        bool current = (*child_iter)[m_proj_cols.m_col_selected];
+                        (*child_iter)[m_proj_cols.m_col_selected] = !current;
+                    }
                 }
             }
         });
@@ -430,18 +434,59 @@ public:
         ok_button->set_sensitive(false);
 
         dialog.show_all_children();
-        spinner->start();
-
+        
         bool fetch_done = false;
         std::string projects_json;
-        std::thread fetch_thread([scope, &projects_json, &fetch_done]() {
-            projects_json = ConnectionManager::exec_command("gcloud asset search-all-resources --asset-types=cloudresourcemanager.googleapis.com/Project --scope=" + scope + " --format=json --quiet");
-            fetch_done = true;
-        });
+        std::thread fetch_thread;
 
+        auto start_fetch = [&]() {
+            fetch_done = false;
+            projects_json.clear();
+            if (fetch_thread.joinable()) fetch_thread.join();
+            fetch_thread = std::thread([scope, &projects_json, &fetch_done]() {
+                projects_json = ConnectionManager::exec_command("gcloud asset search-all-resources --asset-types=cloudresourcemanager.googleapis.com/Project --scope=" + scope + " --format=json --quiet 2>&1");
+                fetch_done = true;
+            });
+            loading_box->show();
+            loading_label->set_text("Fetching projects...");
+            spinner->start();
+        };
 
-        auto conn = Glib::signal_timeout().connect([&, refProjectModel, spinner, loading_box, loading_label, ok_button]() {
+        start_fetch();
+
+        auto conn_fetch = Glib::signal_timeout().connect([&]() {
             if (fetch_done) {
+                if (projects_json.find("SERVICE_DISABLED") != std::string::npos) {
+                    spinner->stop();
+                    std::string project_id = "your-quota-project";
+                    std::regex re("project ([^ ]+) before or it is disabled");
+                    std::smatch match;
+                    if (std::regex_search(projects_json, match, re)) {
+                        project_id = match[1];
+                    }
+
+                    Gtk::MessageDialog err_md(dialog, "Asset API Disabled", false, Gtk::MESSAGE_ERROR, Gtk::BUTTONS_NONE);
+                    err_md.set_secondary_text("Cloud Asset API is disabled in project '" + project_id + "'.\n\n"
+                        "This project is used for quota/billing. You can enable the API at https://console.cloud.google.com/apis/library/cloudasset.googleapis.com, or select a different project to use for quota.");
+                    err_md.add_button("Configure Project", 1);
+                    err_md.add_button("Retry", 2);
+                    err_md.add_button("Cancel", Gtk::RESPONSE_CANCEL);
+                    
+                    int res = err_md.run();
+                    if (res == 1) {
+                        ConnectionManager::configure_default_project(dialog, [&]() {
+                            start_fetch();
+                        });
+                        return true; // Keep waiting for next fetch_done
+                    } else if (res == 2) {
+                        start_fetch();
+                        return true; // Keep waiting for next fetch_done
+                    } else {
+                        loading_label->set_text("Project fetch stopped: Asset API disabled.");
+                        return false;
+                    }
+                }
+
                 if (!projects_json.empty()) {
                     try {
                         auto j = nlohmann::json::parse(projects_json);
@@ -490,7 +535,7 @@ public:
         }
 
         if (fetch_thread.joinable()) fetch_thread.join();
-        conn.disconnect();
+        conn_fetch.disconnect();
     }
 
     // Allows the user to find and add specific compute instances to a managed project.
@@ -1053,23 +1098,23 @@ public:
             "• Ensure the Google Cloud SDK (gcloud) is installed on your system.\n"
             "• Run <tt>gcloud auth login</tt> in a terminal to authenticate your account.\n"
             "• Ensure your IAM user has the <tt>roles/iap.tunnelResourceAccessor</tt> role.\n\n"
-            "<b>2. Managing Organizations and Projects</b>\n"
+            "<b>2. Managing Hierarchy (Organizations, Folders, and Projects)</b>\n"
             "• Use <b>File → Add Organization</b> to import your GCP organizations.\n"
-            "• Right-click an organization in the sidebar to <b>Add Projects</b>. You can use the search bar and regex filter to find specific projects.\n"
-            "• Projects and organizations can be reordered or deleted via the right-click context menu.\n\n"
+            "• Right-click an organization or folder to <b>Add Folder</b>. You can discover nested folders or manually enter a Folder ID if parent listing is denied.\n"
+            "• Right-click a folder or organization to <b>Add Projects</b>. The search is automatically scoped to your selection.\n"
+            "• Use <b>Move Project</b> in the project context menu to relocate a project into a different folder or organization.\n"
+            "• All items can be reordered or deleted via the right-click context menu.\n\n"
             "<b>3. Connecting to Instances</b>\n"
             "• Right-click a project and select <b>Add Connection</b> to discover available VM instances.\n"
-            "• Choose <b>SSH</b> for a native terminal session (powered by VTE).\n"
-            "• Choose <b>RDP</b> for a Remote Desktop session (powered by FreeRDP). RDP sessions are seamlessly embedded into the application tabs.\n\n"
+            "• Choose <b>SSH</b> for a native terminal session (powered by VTE) or <b>RDP</b> for an embedded Remote Desktop session (powered by FreeRDP).\n\n"
             "<b>4. Session Management</b>\n"
-            "• Double-click any instance in the sidebar to initiate a connection.\n"
-            "• Each connection opens in a new tab. Closing a tab will automatically terminate the underlying IAP tunnel.\n"
-            "• For RDP, you can save your credentials locally. They are stored using <b>AES-256 encryption</b>.\n\n"
+            "• Double-click any instance in the sidebar to initiate a connection in a new tab.\n"
+            "• For RDP, you can save your credentials locally. They are stored using <b>AES-256 encryption</b> to protect your data.\n\n"
             "<b>5. Preferences</b>\n"
             "• Access <b>File → Preferences</b> to configure application behavior, such as saving the window size and sidebar position on exit.\n\n"
             "<b>Troubleshooting</b>\n"
-            "If connections fail, verify that your gcloud session hasn't expired by clicking <b>Authenticate</b> in the organization context menu. "
-            "You can also run iapRemote with the <tt>--debug</tt> flag to see detailed logs."
+            "If connections or project listings fail, click <b>Authenticate</b> in the organization context menu to refresh your gcloud session. "
+            "You can also run iapRemote with the <tt>--debug</tt> flag for detailed logs."
         );
 
         sw->add(*label);

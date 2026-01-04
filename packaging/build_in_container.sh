@@ -1,23 +1,28 @@
 #!/bin/bash
-# iapRemote Containerized Build Script
-# This script builds the application and creates .deb packages using a clean container.
+# iapRemote Containerized Build Orchestrator
+# This script runs the robust packaging scripts inside a clean container.
 
 set -e
 
 # Configuration
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VCPKG_HOST_DIR="/opt/vcpkg"
-TARGET_OS=${1:-ubuntu} # Default to ubuntu, can also be "debian"
+VCPKG_HOST_DIR="$PROJECT_ROOT/build_vcpkg"
+TARGET_OS=${1:-debian} # debian or ubuntu
+TARGET_VER=$2          # e.g., 11 or 12 for debian, 20.04 or 22.04 for ubuntu
 
 if [ "$TARGET_OS" == "debian" ]; then
-    IMAGE="debian:12"
+    IMAGE_TAG=${TARGET_VER:-12}
+    IMAGE="debian:$IMAGE_TAG"
+    DISTRO_ID="debian$IMAGE_TAG"
     PKG_SCRIPT="packaging/debian_dist/create_deb.sh"
 else
-    IMAGE="ubuntu:22.04"
+    IMAGE_TAG=${TARGET_VER:-22.04}
+    IMAGE="ubuntu:$IMAGE_TAG"
+    DISTRO_ID="ubuntu$IMAGE_TAG"
     PKG_SCRIPT="packaging/ubuntu_dist/create_deb.sh"
 fi
 
-echo "Starting container build for $TARGET_OS using $IMAGE..."
+echo "Orchestrating container build for $TARGET_OS ($IMAGE_TAG) using $IMAGE..."
 
 # Ensure we have the container tool
 CONTAINER_TOOL=$(command -v docker || command -v podman)
@@ -28,23 +33,16 @@ fi
 
 # Run the container
 # We mount:
-# 1. The project root to /src
-# 2. The host vcpkg directory to /opt/vcpkg
-# 3. We run as root inside the container to install build essentials
+# 1. The project root to /src (where we work)
+# 2. The host vcpkg directory to /opt/vcpkg (for persistence/speed)
 $CONTAINER_TOOL run --rm \
     -v "$PROJECT_ROOT:/src" \
     -v "$VCPKG_HOST_DIR:/opt/vcpkg" \
     -w /src \
     "$IMAGE" /bin/bash -c "
-        apt-get update && \
-        apt-get install -y cmake g++ pkg-config libgtkmm-3.0-dev libvte-2.91-dev libssl-dev dpkg-dev make curl zip unzip tar git nlohmann-json3-dev && \
-        echo 'Build dependencies installed. Starting packaging script...' && \
-        mkdir -p /src/.vcpkg_cache && \
-        export VCPKG_BINARY_SOURCES='clear;files,/src/.vcpkg_cache,readwrite' && \
-        export VCPKG_INSTALL_OPTIONS='--clean-after-build' && \
-        export BUILD_DIR=build_container && \
-        export EXTRA_CMAKE_FLAGS='-DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_INSTALLED_DIR=/src/vcpkg_installed_container' && \
+        export VCPKG_ROOT=/opt/vcpkg && \
+        export DISTRO_ID=$DISTRO_ID && \
         bash $PKG_SCRIPT
     "
 
-echo "Container build finished successfully."
+echo "Container build process finished. Check the 'output' directory for your .deb file."

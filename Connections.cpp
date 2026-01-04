@@ -154,32 +154,24 @@ void ConnectionManager::save_projects(const std::string& parentId, const std::ve
     }
     infile.close();
 
-    std::unordered_map<std::string, ProjectInfo> parentProj;
-    json others = json::array();
-    for (auto& item : j) {
-        std::string pid = item.value("parentId", "");
-        if (pid.empty()) pid = item.value("organizationId", "");
+    std::set<std::string> allIds;
+    for (const auto& item : j) {
+        allIds.insert(item.value("id", ""));
+    }
 
-        if (pid == parentId) {
-            std::string id = item.value("id", "");
-            parentProj[id] = {id, item.value("name", ""), parentId};
-        } else {
-            others.push_back(item);
+    bool changed = false;
+    for (const auto& p : newProjects) {
+        if (allIds.find(p.id) == allIds.end()) {
+            j.push_back({{"id", p.id}, {"name", p.name}, {"parentId", parentId}});
+            allIds.insert(p.id);
+            changed = true;
         }
     }
 
-    for (const auto& p : newProjects) {
-        parentProj[p.id] = p;
+    if (changed) {
+        std::ofstream outfile(get_projects_config_path());
+        outfile << j.dump(4);
     }
-
-    json updated = others;
-    for (const auto& pair : parentProj) {
-        const auto& p = pair.second;
-        updated.push_back({{"id", p.id}, {"name", p.name}, {"parentId", parentId}});
-    }
-
-    std::ofstream outfile(get_projects_config_path());
-    outfile << updated.dump(4);
 }
 
 // Retrieves connection details for a specific project from disk.
