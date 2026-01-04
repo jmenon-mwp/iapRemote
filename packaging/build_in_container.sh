@@ -7,19 +7,27 @@ set -e
 # Configuration
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VCPKG_HOST_DIR="$PROJECT_ROOT/build_vcpkg"
-TARGET_OS=${1:-debian} # debian or ubuntu
-TARGET_VER=$2          # e.g., 11 or 12 for debian, 20.04 or 22.04 for ubuntu
+TARGET_OS=${1:-debian} # debian, ubuntu, or rpm
+TARGET_VER=$2          # e.g., 11 or 12 for debian, 20.04 or 22.04 for ubuntu, 8 or 9 for rpm
 
 if [ "$TARGET_OS" == "debian" ]; then
     IMAGE_TAG=${TARGET_VER:-12}
     IMAGE="debian:$IMAGE_TAG"
     DISTRO_ID="debian$IMAGE_TAG"
     PKG_SCRIPT="packaging/debian_dist/create_deb.sh"
-else
+elif [ "$TARGET_OS" == "ubuntu" ]; then
     IMAGE_TAG=${TARGET_VER:-22.04}
     IMAGE="ubuntu:$IMAGE_TAG"
     DISTRO_ID="ubuntu$IMAGE_TAG"
     PKG_SCRIPT="packaging/ubuntu_dist/create_deb.sh"
+elif [ "$TARGET_OS" == "rocky" ]; then
+    IMAGE_TAG=${TARGET_VER:-9}
+    IMAGE="rockylinux:$IMAGE_TAG"
+    DISTRO_ID="rhel$IMAGE_TAG"
+    PKG_SCRIPT="packaging/rpm_dist/create_rpm.sh"
+else
+    echo "Error: Unsupported TARGET_OS '$TARGET_OS'. Use debian, ubuntu, or rocky."
+    exit 1
 fi
 
 echo "Orchestrating container build for $TARGET_OS ($IMAGE_TAG) using $IMAGE..."

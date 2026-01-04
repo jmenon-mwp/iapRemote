@@ -52,8 +52,12 @@ install_manifest.txt
 CTestTestfile.cmake
 
 # Suggested build directory
-build*
-*_stage/
+build/
+build_static/
+build_deb_dist/
+build_deb_ubuntu/
+build_rpm_dist/
+build_vcpkg/
 output/
 
 # Editor / IDE

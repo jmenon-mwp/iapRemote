@@ -1,49 +1,111 @@
 #!/bin/bash
-# iapRemote RPM Package Creation Script (RHEL, CentOS, Rocky Linux)
+# iapRemote - Comprehensive Build and RPM Packaging Script
+# This script handles dependency installation (dnf), compilation with vcpkg, and .rpm creation.
 
 set -e
 
 # Configuration
 PKG_NAME="iapRemote"
 VERSION="1.0.0"
+ARCH="x86_64"
+DISTRO_ID=${DISTRO_ID:-rhel9}
 RPMBUILD_ROOT="$(pwd)/rpmbuild"
+VCPKG_ROOT=${VCPKG_ROOT:-/opt/vcpkg}
+GITHUB_URL="https://github.com/jmenon-mwp/iapRemote"
 
-# Move to the project root directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../" && pwd)"
-cd "$PROJECT_ROOT"
+echo "=== iapRemote Build and RPM Packaging Starting ==="
+echo "Target: RPM Package ($DISTRO_ID)"
 
-echo "Cleaning up previous build artifacts..."
+# 1. System Dependencies (dnf)
+if [ "$BUILD_SKIP_DEPS" != "1" ]; then
+    echo "[1/5] Installing system dependencies..."
+    if command -v dnf >/dev/null 2>&1; then
+        # Install EPEL and CRB (Code Ready Builder)
+        dnf install -y --allowerasing epel-release
+        dnf install -y --allowerasing 'dnf-command(config-manager)'
+        dnf config-manager --set-enabled crb
+
+        # Install Essential Build Tools first
+        dnf install -y --allowerasing \
+            gcc-c++ \
+            libstdc++-static \
+            cmake \
+            make \
+            git \
+            pkgconfig \
+            curl \
+            zip \
+            unzip \
+            tar \
+            rpm-build \
+            perl-generators
+
+        # Install GUI and Dev libraries (some might be in EPEL/CRB)
+        dnf install -y --allowerasing \
+            gtkmm30-devel \
+            vte291-devel \
+            openssl-devel \
+            nlohmann-json-devel
+    fi
+fi
+
+# 2. vcpkg Setup
+echo "[2/5] Setting up vcpkg..."
+if [ ! -f "$VCPKG_ROOT/vcpkg" ]; then
+    if [ ! -d "$VCPKG_ROOT/.git" ]; then
+        echo "vcpkg not found at $VCPKG_ROOT. Cloning..."
+        git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+    fi
+    echo "Bootstrapping vcpkg..."
+    "$VCPKG_ROOT/bootstrap-vcpkg.sh"
+fi
+
+echo "Ensuring google-cloud-cpp[core,iap] is installed in vcpkg (Classic Mode)..."
+"$VCPKG_ROOT/vcpkg" install "google-cloud-cpp[core,iap]" --classic
+
+# 3. Source Code Setup
+echo "[3/5] Preparing source code..."
+if [ -f "CMakeLists.txt" ] && grep -q "project(iapRemote)" CMakeLists.txt; then
+    echo "Already in source tree."
+    PROJECT_ROOT=$(pwd)
+else
+    echo "Cloning source from $GITHUB_URL..."
+    if [ -d "iapRemote" ]; then rm -rf iapRemote; fi
+    git clone "$GITHUB_URL"
+    cd iapRemote
+    PROJECT_ROOT=$(pwd)
+fi
+
+# 4. Compilation
+echo "[4/5] Compiling iapRemote..."
+BUILD_DIR="build_rpm_dist"
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
+
+cmake -B "$BUILD_DIR" -S . \
+    -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+    -DSTATIC_BUILD=ON \
+    -DCMAKE_BUILD_TYPE=Release
+
+cmake --build "$BUILD_DIR" -j$(nproc)
+
+# 5. Packaging (RPM)
+echo "[5/5] Creating RPM package..."
 rm -rf "$RPMBUILD_ROOT"
 mkdir -p "$RPMBUILD_ROOT"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 
-# Create source tarball
-echo "Creating source tarball..."
-# We create a temporary directory to structure the tarball correctly
-TEMP_TAR_DIR="tmp_rpm_tar"
-rm -rf "$TEMP_TAR_DIR"
-mkdir -p "$TEMP_TAR_DIR/$PKG_NAME-$VERSION"
-cp -r * "$TEMP_TAR_DIR/$PKG_NAME-$VERSION/"
-# Remove the temp build artifacts from the tarball
-rm -rf "$TEMP_TAR_DIR/$PKG_NAME-$VERSION/build"
-rm -rf "$TEMP_TAR_DIR/$PKG_NAME-$VERSION/deb_stage"
-rm -rf "$TEMP_TAR_DIR/$PKG_NAME-$VERSION/rpmbuild"
-
-tar -czf "$RPMBUILD_ROOT/SOURCES/$PKG_NAME-$VERSION.tar.gz" -C "$TEMP_TAR_DIR" "$PKG_NAME-$VERSION"
-rm -rf "$TEMP_TAR_DIR"
-
-# Copy the spec file
 cp packaging/rpm_dist/SPECS/iapRemote.spec "$RPMBUILD_ROOT/SPECS/"
 
-echo "Starting rpmbuild..."
-if command -v rpmbuild >/dev/null 2>&1; then
-    rpmbuild -ba --define "_topdir $RPMBUILD_ROOT" --define "extra_cmake_flags $EXTRA_CMAKE_FLAGS" "$RPMBUILD_ROOT/SPECS/iapRemote.spec"
-    
-    echo "Success! RPM packages created in $RPMBUILD_ROOT/RPMS/"
-    ls -R "$RPMBUILD_ROOT/RPMS/"
-else
-    echo "Error: rpmbuild command not found."
-    echo "To build this on an RPM-based system, you typically need to install 'rpm-build' and 'rpmdevtools'."
-    echo "The build environment is prepared in $RPMBUILD_ROOT"
-    exit 1
-fi
+# Run rpmbuild in binary-only mode (-bb)
+# We pass the absolute path to our project tree so the spec can find our files
+rpmbuild -bb \
+    --define "_topdir $RPMBUILD_ROOT" \
+    --define "project_root $PROJECT_ROOT" \
+    "$RPMBUILD_ROOT/SPECS/iapRemote.spec"
+
+# Final placement
+mkdir -p "$PROJECT_ROOT/output"
+find "$RPMBUILD_ROOT/RPMS" -name "*.rpm" -exec mv {} "$PROJECT_ROOT/output/" \;
+
+echo "Success! RPM Package(s) created in: $PROJECT_ROOT/output/"
+echo "=== iapRemote Build and Packaging Finished ==="
