@@ -6,7 +6,7 @@ set -e
 
 # Configuration
 PKG_NAME="iapremote"
-VERSION="1.0.0"
+VERSION="${PKG_VERSION:-1.0.0}"
 ARCH="amd64"
 DISTRO_ID=${DISTRO_ID:-debian}
 DEB_FILE="${PKG_NAME}_${VERSION}_${DISTRO_ID}_${ARCH}.deb"
@@ -99,6 +99,8 @@ cp styles.css "$STAGE_DIR/usr/share/iapRemote/"
 cp packaging/debian_dist/iapRemote.desktop "$STAGE_DIR/usr/share/applications/"
 cp icon.svg "$STAGE_DIR/usr/share/icons/hicolor/scalable/apps/iapRemote.svg"
 cp packaging/debian_dist/DEBIAN/control "$STAGE_DIR/DEBIAN/"
+# Update version in control file
+sed -i "s/^Version: .*/Version: $VERSION/" "$STAGE_DIR/DEBIAN/control"
 cp packaging/debian_dist/DEBIAN/postinst "$STAGE_DIR/DEBIAN/"
 cp packaging/debian_dist/DEBIAN/postrm "$STAGE_DIR/DEBIAN/"
 

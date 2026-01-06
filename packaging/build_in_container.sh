@@ -7,8 +7,9 @@ set -e
 # Configuration
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VCPKG_HOST_DIR="$PROJECT_ROOT/build_vcpkg"
-TARGET_OS=${1:-debian} # debian, ubuntu, or rpm
+TARGET_OS=${1:-debian} # debian, ubuntu, or rocky
 TARGET_VER=$2          # e.g., 11 or 12 for debian, 20.04 or 22.04 for ubuntu, 8 or 9 for rpm
+PKG_VERSION=$3         # e.g., 1.0.1 (optional)
 
 if [ "$TARGET_OS" == "debian" ]; then
     IMAGE_TAG=${TARGET_VER:-12}
@@ -50,6 +51,7 @@ $CONTAINER_TOOL run --rm \
     "$IMAGE" /bin/bash -c "
         export VCPKG_ROOT=/opt/vcpkg && \
         export DISTRO_ID=$DISTRO_ID && \
+        ${PKG_VERSION:+export PKG_VERSION=$PKG_VERSION && } \
         bash $PKG_SCRIPT
     "
 

@@ -6,7 +6,7 @@ set -e
 
 # Configuration
 PKG_NAME="iapRemote"
-VERSION="1.0.0"
+VERSION="${PKG_VERSION:-1.0.0}"
 ARCH="x86_64"
 DISTRO_ID=${DISTRO_ID:-rhel9}
 RPMBUILD_ROOT="$(pwd)/rpmbuild"
@@ -97,10 +97,11 @@ mkdir -p "$RPMBUILD_ROOT"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 cp packaging/rpm_dist/SPECS/iapRemote.spec "$RPMBUILD_ROOT/SPECS/"
 
 # Run rpmbuild in binary-only mode (-bb)
-# We pass the absolute path to our project tree so the spec can find our files
+# We pass the absolute path to our project tree and the version
 rpmbuild -bb \
     --define "_topdir $RPMBUILD_ROOT" \
     --define "project_root $PROJECT_ROOT" \
+    --define "pkg_version $VERSION" \
     "$RPMBUILD_ROOT/SPECS/iapRemote.spec"
 
 # Final placement

@@ -538,8 +538,9 @@ void ConnectionManager::authenticate_user(Gtk::Window& parent, std::function<voi
 
     // Add URL matching for right-click 'Copy Link' functionality
     GError* url_err = nullptr;
+    // 0x400 is PCRE2_MULTILINE, required by VTE for regex matches
     VteRegex* url_regex = vte_regex_new_for_match(
-        "(https?://[^\\s'\"\\(\\)]+)", -1, 0, &url_err
+        "(https?://[^\\s'\"\\(\\)]+)", -1, 0x400, &url_err
     );
     if (url_regex) {
         vte_terminal_match_add_regex(terminal, url_regex, 0);
@@ -861,8 +862,9 @@ void ConnectionManager::open_ssh_session(Gtk::Box& session_container, const Conn
 
     // Add URL matching for right-click 'Copy Link' functionality
     GError* url_err = nullptr;
+    // 0x400 is PCRE2_MULTILINE, required by VTE for regex matches
     VteRegex* url_regex = vte_regex_new_for_match(
-        "(https?://[^\\s'\"\\(\\)]+)", -1, 0, &url_err
+        "(https?://[^\\s'\"\\(\\)]+)", -1, 0x400, &url_err
     );
     if (url_regex) {
         vte_terminal_match_add_regex(terminal, url_regex, 0);
