@@ -859,6 +859,53 @@ void ConnectionManager::open_ssh_session(Gtk::Box& session_container, const Conn
     session_container.pack_start(*term_widget, Gtk::PACK_EXPAND_WIDGET);
     term_widget->show();
 
+    // Add URL matching for right-click 'Copy Link' functionality
+    GError* url_err = nullptr;
+    VteRegex* url_regex = vte_regex_new_for_match(
+        "(https?://[^\\s'\"\\(\\)]+)", -1, 0, &url_err
+    );
+    if (url_regex) {
+        vte_terminal_match_add_regex(terminal, url_regex, 0);
+        vte_regex_unref(url_regex);
+    }
+
+    // Add right-click context menu (Copy/Paste/Copy Link)
+    term_widget->add_events(Gdk::BUTTON_PRESS_MASK);
+    term_widget->signal_button_press_event().connect([terminal](GdkEventButton* event) -> bool {
+        if (event->type == GDK_BUTTON_PRESS && event->button == 3) {
+            auto menu = Gtk::manage(new Gtk::Menu());
+
+            char* match = vte_terminal_match_check_event(terminal, (GdkEvent*)event, nullptr);
+            if (match) {
+                std::string url = match;
+                g_free(match);
+                auto link_item = Gtk::manage(new Gtk::MenuItem("Copy Link"));
+                link_item->signal_activate().connect([url]() {
+                    Gtk::Clipboard::get(GDK_SELECTION_CLIPBOARD)->set_text(url);
+                });
+                menu->append(*link_item);
+                menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
+            }
+
+            auto copy_item = Gtk::manage(new Gtk::MenuItem("Copy Selection"));
+            copy_item->signal_activate().connect([terminal]() {
+                vte_terminal_copy_clipboard_format(terminal, VTE_FORMAT_TEXT);
+            });
+            menu->append(*copy_item);
+
+            auto paste_item = Gtk::manage(new Gtk::MenuItem("Paste Clipboard"));
+            paste_item->signal_activate().connect([terminal]() {
+                vte_terminal_paste_clipboard(terminal);
+            });
+            menu->append(*paste_item);
+
+            menu->show_all();
+            menu->popup(event->button, event->time);
+            return true;
+        }
+        return false;
+    }, false);
+
     // Connect exit signal
     if (on_exit) {
         auto cb_ptr = new std::function<void()>(on_exit);
