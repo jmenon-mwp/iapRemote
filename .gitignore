@@ -59,6 +59,8 @@ build_deb_ubuntu/
 build_rpm_dist/
 build_vcpkg/
 output/
+deb_stage/
+rpmbuild/
 
 # Editor / IDE
 .vscode/
