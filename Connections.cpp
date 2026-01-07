@@ -94,7 +94,11 @@ std::vector<OrganizationInfo> ConnectionManager::load_organizations() {
         json j;
         file >> j;
         for (auto& item : j) {
-            orgs.push_back({item.value("id", ""), item.value("name", "")});
+            orgs.push_back({
+                item.value("id", ""),
+                item.value("name", ""),
+                item.value("is_expanded", false)
+            });
         }
     } catch (const std::exception& e) {
         std::cerr << "Error loading organizations: " << e.what() << std::endl;
@@ -115,8 +119,13 @@ void ConnectionManager::save_organization(const OrganizationInfo& org) {
     orgs.push_back(org);
 
     json j = json::array();
+
     for (const auto& item : orgs) {
-        j.push_back({{"id", item.id}, {"name", item.name}});
+        j.push_back({
+            {"id", item.id},
+            {"name", item.name},
+            {"is_expanded", item.is_expanded}
+        });
     }
 
     std::ofstream file(get_config_path());
@@ -139,10 +148,18 @@ std::vector<ProjectInfo> ConnectionManager::load_projects(const std::string& par
             if (pid.empty()) pid = item.value("organizationId", "");
 
             if (pid == parentId) {
-                projects.push_back({item.value("id", ""), item.value("name", ""), parentId});
+                bool is_exp = item.value("is_expanded", false);
+                projects.push_back({
+                    item.value("id", ""),
+                    item.value("name", ""),
+                    parentId,
+                    is_exp
+                });
             }
         }
-    } catch (...) {}
+    } catch (const std::exception& e) {
+        std::cerr << "Error loading projects: " << e.what() << std::endl;
+    }
     return projects;
 }
 
@@ -162,7 +179,12 @@ void ConnectionManager::save_projects(const std::string& parentId, const std::ve
     bool changed = false;
     for (const auto& p : newProjects) {
         if (allIds.find(p.id) == allIds.end()) {
-            j.push_back({{"id", p.id}, {"name", p.name}, {"parentId", parentId}});
+            j.push_back({
+                {"id", p.id},
+                {"name", p.name},
+                {"parentId", parentId},
+                {"is_expanded", p.is_expanded}
+            });
             allIds.insert(p.id);
             changed = true;
         }
@@ -354,6 +376,9 @@ Preferences ConnectionManager::load_preferences() {
             prefs.window_width = j.value("window_width", 800);
             prefs.window_height = j.value("window_height", 600);
             prefs.sidebar_width = j.value("sidebar_width", 250);
+            if (j.contains("expanded_nodes")) {
+                prefs.expanded_nodes = j["expanded_nodes"].get<std::vector<std::string>>();
+            }
         } catch (...) {}
     }
     return prefs;
@@ -365,6 +390,7 @@ void ConnectionManager::save_preferences(const Preferences& prefs) {
     j["window_width"] = prefs.window_width;
     j["window_height"] = prefs.window_height;
     j["sidebar_width"] = prefs.sidebar_width;
+    j["expanded_nodes"] = prefs.expanded_nodes;
 
     std::ofstream file(get_preferences_config_path());
     file << j.dump(4);
@@ -1287,7 +1313,12 @@ std::vector<FolderInfo> ConnectionManager::load_folders(const std::string& paren
         file >> j;
         for (auto& item : j) {
             if (item.value("parentId", "") == parentId) {
-                folders.push_back({item.value("id", ""), item.value("name", ""), parentId});
+                folders.push_back({
+                    item.value("id", ""),
+                    item.value("name", ""),
+                    parentId,
+                    item.value("is_expanded", false)
+                });
             }
         }
     } catch (...) {}
@@ -1307,20 +1338,47 @@ void ConnectionManager::save_folders(const std::string& parentId, const std::vec
     for (auto& item : j) {
         if (item.value("parentId", "") == parentId) {
             std::string fid = item.value("id", "");
-            parentFolders[fid] = {fid, item.value("name", ""), parentId};
+            parentFolders[fid] = {
+                fid,
+                item.value("name", ""),
+                parentId,
+                item.value("is_expanded", false)
+            };
         } else {
             others.push_back(item);
         }
     }
 
     for (const auto& f : newFolders) {
-        parentFolders[f.id] = f;
+        // If we already have it, we might want to preserve is_expanded if 'f' doesn't specify it,
+        // BUT 'newFolders' comes from the UI which probably doesn't track is_expanded during 'save_folders' operations (like add/delete),
+        // or it might come from a fresh listing where we don't know the state.
+        // Actually, 'newFolders' is passed when adding/bulk saving.
+        // Let's assume 'f' is authoritative EXCEPT for expanded state if it's not tracked there.
+        // However, ConnectionManager::save_folders is called after "Add Folder" where we create a new FolderInfo.
+        // The simple fix is to use f.is_expanded if we have it, or keep existing.
+        // Since FolderInfo now has is_expanded = false by default, we should be careful.
+        // But for a NEW folder, false is correct. For existing, we might be overwriting.
+        // Let's check if it exists in parentFolders.
+        if(parentFolders.count(f.id)) {
+             FolderInfo existing = parentFolders[f.id];
+             FolderInfo updated = f;
+             updated.is_expanded = existing.is_expanded; // Preserve existing state unless we explicitly want to change it (which we don't here)
+             parentFolders[f.id] = updated;
+        } else {
+            parentFolders[f.id] = f;
+        }
     }
 
     json updated = others;
     for (const auto& pair : parentFolders) {
         const auto& f = pair.second;
-        updated.push_back({{"id", f.id}, {"name", f.name}, {"parentId", parentId}});
+        updated.push_back({
+            {"id", f.id},
+            {"name", f.name},
+            {"parentId", parentId},
+            {"is_expanded", f.is_expanded}
+        });
     }
 
     std::ofstream outfile(get_folders_config_path());
@@ -1392,4 +1450,74 @@ void ConnectionManager::delete_folder(const std::string& folderId) {
 
     std::ofstream foutfile(get_folders_config_path());
     foutfile << f_updated.dump(4);
+}
+
+void ConnectionManager::set_node_expanded(const std::string& type, const std::string& id, bool expanded) {
+    if (type == "org") {
+        std::ifstream file(get_config_path());
+        if (!file.is_open()) {
+            std::cerr << "Failed to open org config for editing: " << get_config_path() << std::endl;
+            return;
+        }
+        json j;
+        try { file >> j; } catch (const std::exception& e) {
+             std::cerr << "Failed to parse org config: " << e.what() << std::endl;
+             return;
+        }
+        file.close();
+
+        bool changed = false;
+        for (auto& item : j) {
+            if (item.value("id", "") == id) {
+                item["is_expanded"] = expanded;
+                changed = true;
+                break;
+            }
+        }
+
+        if (changed) {
+            std::ofstream outfile(get_config_path());
+            outfile << j.dump(4);
+        }
+    } else if (type == "folder") {
+        std::ifstream file(get_folders_config_path());
+        if (!file.is_open()) return;
+        json j;
+        try { file >> j; } catch (...) { return; }
+        file.close();
+
+        bool changed = false;
+        for (auto& item : j) {
+            if (item.value("id", "") == id) {
+                item["is_expanded"] = expanded;
+                changed = true;
+                break;
+            }
+        }
+
+        if (changed) {
+            std::ofstream outfile(get_folders_config_path());
+            outfile << j.dump(4);
+        }
+    } else if (type == "project") {
+        std::ifstream file(get_projects_config_path());
+        if (!file.is_open()) return;
+        json j;
+        try { file >> j; } catch (...) { return; }
+        file.close();
+
+        bool changed = false;
+        for (auto& item : j) {
+            if (item.value("id", "") == id) {
+                item["is_expanded"] = expanded;
+                changed = true;
+                break;
+            }
+        }
+
+        if (changed) {
+            std::ofstream outfile(get_projects_config_path());
+            outfile << j.dump(4);
+        }
+    }
 }

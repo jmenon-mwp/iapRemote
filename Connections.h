@@ -10,18 +10,21 @@
 struct OrganizationInfo {
     std::string id;
     std::string name;
+    bool is_expanded = false;
 };
 
 struct FolderInfo {
     std::string id;
     std::string name;
     std::string parentId;
+    bool is_expanded = false;
 };
 
 struct ProjectInfo {
     std::string id;
     std::string name;
     std::string parentId; // Could be organizationId or folderId
+    bool is_expanded = false;
 };
 
 struct ConnectionInfo {
@@ -40,6 +43,7 @@ struct Preferences {
     int window_width = 800;
     int window_height = 600;
     int sidebar_width = 250;
+    std::vector<std::string> expanded_nodes;
 };
 
 class ConnectionManager {
@@ -145,6 +149,9 @@ public:
 
     // Reorders and saves folders for a parent based on the provided ID order.
     static void save_folder_order(const std::string& parentId, const std::vector<std::string>& folderIds);
+
+    // Updates the expanded state of a node (org, folder, project) in the persistence layer.
+    static void set_node_expanded(const std::string& type, const std::string& id, bool expanded);
 
     // Returns the storage path for user preferences.
     static std::string get_preferences_config_path();

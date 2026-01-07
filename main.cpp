@@ -24,6 +24,7 @@ public:
     MainWindow() : m_width(800), m_height(600) {
 
         ConnectionManager::init();
+        m_prefs = ConnectionManager::load_preferences();
         set_title("IAP Remote Desktop & SSH Manager");
         set_default_size(m_width, m_height);
 
@@ -92,7 +93,8 @@ public:
         m_paned.pack1(m_left_box, false, false);
         m_paned.pack2(m_right_box, true, true);
 
-        m_prefs = ConnectionManager::load_preferences();
+        m_paned.pack2(m_right_box, true, true);
+
         if (m_prefs.save_window_size) {
             set_default_size(m_prefs.window_width, m_prefs.window_height);
             m_paned.set_position(m_prefs.sidebar_width);
@@ -131,6 +133,49 @@ public:
         }
 
         show_all_children();
+
+        m_treeview.signal_row_expanded().connect(sigc::mem_fun(*this, &MainWindow::on_row_expanded));
+        m_treeview.signal_row_collapsed().connect(sigc::mem_fun(*this, &MainWindow::on_row_collapsed));
+    }
+
+    void on_row_expanded(const Gtk::TreeModel::iterator& iter, const Gtk::TreeModel::Path& path) {
+        if(iter) {
+            Gtk::TreeModel::Row row = *iter;
+            std::string type = row[m_columns.m_col_type];
+            std::string id = row[m_columns.m_col_id];
+            if(type == "org" || type == "folder" || type == "project") {
+                ConnectionManager::set_node_expanded(type, id, true);
+            }
+        }
+    }
+
+    void on_row_collapsed(const Gtk::TreeModel::iterator& iter, const Gtk::TreeModel::Path& path) {
+        if(iter) {
+            Gtk::TreeModel::Row row = *iter;
+            std::string type = row[m_columns.m_col_type];
+            std::string id = row[m_columns.m_col_id];
+            if(type == "org" || type == "folder" || type == "project") {
+                ConnectionManager::set_node_expanded(type, id, false);
+            }
+        }
+    }
+
+    void restore_expansion_state(const Gtk::TreeModel::iterator& iter) {
+        if (!iter) return;
+
+        // Depth-first traversal or top-down?
+        // We need to expand this node if marked so.
+        Gtk::TreeModel::Row row = *iter;
+        bool is_expanded = row[m_columns.m_col_is_expanded];
+
+        if (is_expanded) {
+             m_treeview.expand_row(m_refTreeModel->get_path(row), false);
+        }
+
+        // Recursively check children
+        for(auto child_iter : row.children()) {
+            restore_expansion_state(child_iter);
+        }
     }
 
     void load_tree_node(const Gtk::TreeModel::Row& parent_row, const std::string& parent_id) {
@@ -141,6 +186,7 @@ public:
             frow[m_columns.m_col_id] = f.id;
             frow[m_columns.m_col_name] = f.name;
             frow[m_columns.m_col_type] = "folder";
+            frow[m_columns.m_col_is_expanded] = f.is_expanded;
             load_tree_node(frow, f.id);
         }
 
@@ -151,6 +197,7 @@ public:
             prow[m_columns.m_col_id] = proj.id;
             prow[m_columns.m_col_name] = proj.name;
             prow[m_columns.m_col_type] = "project";
+            prow[m_columns.m_col_is_expanded] = proj.is_expanded;
 
             auto connections = ConnectionManager::load_connections(proj.id);
             for (const auto& conn : connections) {
@@ -177,9 +224,15 @@ public:
             row[m_columns.m_col_id] = org.id;
             row[m_columns.m_col_name] = org.name;
             row[m_columns.m_col_type] = "org";
+            row[m_columns.m_col_is_expanded] = org.is_expanded;
             load_tree_node(row, org.id);
         }
-        m_treeview.expand_all();
+
+        // Restore expansion state top-down
+        for(auto iter : m_refTreeModel->children()) {
+            restore_expansion_state(iter);
+        }
+        // m_treeview.expand_all(); // Removed to respect saved state
     }
 
     void on_add_organization_click() {
@@ -437,7 +490,7 @@ public:
         ok_button->set_sensitive(false);
 
         dialog.show_all_children();
-        
+
         bool fetch_done = false;
         std::string projects_json;
         std::thread fetch_thread;
@@ -474,7 +527,7 @@ public:
                     err_md.add_button("Configure Project", 1);
                     err_md.add_button("Retry", 2);
                     err_md.add_button("Cancel", Gtk::RESPONSE_CANCEL);
-                    
+
                     int res = err_md.run();
                     if (res == 1) {
                         ConnectionManager::configure_default_project(dialog, [&]() {
@@ -647,6 +700,8 @@ public:
         }
     }
 
+
+
     // Gracefully shuts down the application and its background processes.
     // Ensures the main window is hidden and resources are released.
     void on_quit_click() {
@@ -658,8 +713,25 @@ public:
             m_prefs.sidebar_width = m_paned.get_position();
             ConnectionManager::save_preferences(m_prefs);
         }
+        // Save expansion state even if window size saving is disabled (or make it part of preferences generally)
+        if (!m_prefs.save_window_size) {
+             ConnectionManager::save_preferences(m_prefs);
+        }
         ConnectionManager::cleanup();
         hide();
+    }
+
+    bool on_delete_event(GdkEventAny* any_event) override {
+        if (m_prefs.save_window_size) {
+            int w, h;
+            get_size(w, h);
+            m_prefs.window_width = w;
+            m_prefs.window_height = h;
+            m_prefs.sidebar_width = m_paned.get_position();
+        }
+        ConnectionManager::save_preferences(m_prefs);
+        ConnectionManager::cleanup();
+        return false;
     }
 
     bool on_tree_button_press_event(GdkEventButton* event) {
@@ -940,7 +1012,7 @@ public:
 
         auto folders = ConnectionManager::load_folders(parentId);
         auto projects = ConnectionManager::load_projects(parentId);
-        
+
         std::vector<std::pair<std::string, std::string>> items;
         for(const auto& f : folders) items.push_back({f.id, "[Folder] " + f.name});
         for(const auto& p : projects) items.push_back({p.id, "[Project] " + p.name});
@@ -1001,7 +1073,7 @@ public:
         std::vector<ParentOption> options;
 
         auto orgs = ConnectionManager::load_organizations();
-        
+
         std::function<void(const std::string&, const std::string&)> add_folders_recursively;
         add_folders_recursively = [&](const std::string& parentId, const std::string& prefix) {
             auto folders = ConnectionManager::load_folders(parentId);
@@ -1021,7 +1093,7 @@ public:
             combo.append(options[i].id, options[i].label);
             if (options[i].id == current_parent_id) current_idx = (int)i;
         }
-        
+
         if (current_idx != -1) combo.set_active(current_idx);
         else if (!options.empty()) combo.set_active(0);
 
@@ -1034,7 +1106,7 @@ public:
 
         content->pack_start(*Gtk::manage(new Gtk::Label("Select destination folder or organization:")), Gtk::PACK_SHRINK);
         content->pack_start(combo, Gtk::PACK_SHRINK);
-        
+
         dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
         dialog.add_button("OK", Gtk::RESPONSE_OK);
         dialog.show_all_children();
@@ -1158,6 +1230,7 @@ protected:
             add(m_col_id); add(m_col_name); add(m_col_type);
             add(m_col_zone); add(m_col_port); add(m_col_project_id);
             add(m_col_conn_type); add(m_col_username); add(m_col_password);
+            add(m_col_is_expanded);
         }
         Gtk::TreeModelColumn<std::string> m_col_id;
         Gtk::TreeModelColumn<std::string> m_col_name;
@@ -1168,6 +1241,7 @@ protected:
         Gtk::TreeModelColumn<std::string> m_col_conn_type;
         Gtk::TreeModelColumn<std::string> m_col_username;
         Gtk::TreeModelColumn<std::string> m_col_password;
+        Gtk::TreeModelColumn<bool> m_col_is_expanded;
     };
 
 
