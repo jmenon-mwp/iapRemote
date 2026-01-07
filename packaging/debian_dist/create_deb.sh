@@ -99,8 +99,6 @@ cp styles.css "$STAGE_DIR/usr/share/iapRemote/"
 cp packaging/debian_dist/iapRemote.desktop "$STAGE_DIR/usr/share/applications/"
 cp icon.svg "$STAGE_DIR/usr/share/icons/hicolor/scalable/apps/iapRemote.svg"
 cp packaging/debian_dist/DEBIAN/control "$STAGE_DIR/DEBIAN/"
-# Update version in control file
-sed -i "s/^Version: .*/Version: $VERSION/" "$STAGE_DIR/DEBIAN/control"
 cp packaging/debian_dist/DEBIAN/postinst "$STAGE_DIR/DEBIAN/"
 cp packaging/debian_dist/DEBIAN/postrm "$STAGE_DIR/DEBIAN/"
 
