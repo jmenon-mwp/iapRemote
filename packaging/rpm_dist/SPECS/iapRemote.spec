@@ -1,5 +1,5 @@
 Name:           iapRemote
-Version:        1.0.0
+Version:        %{PKG_VERSION}
 Release:        1%{?dist}
 Summary:        Secure IAP Tunneling Client for GCP
 License:        Apache-2.0

@@ -6,7 +6,7 @@ set -e
 
 # Configuration
 PKG_NAME="iapRemote"
-VERSION="1.0.0"
+VERSION="${PKG_VERSION:-1.0.0}"
 ARCH="x86_64"
 DISTRO_ID=${DISTRO_ID:-rhel9}
 RPMBUILD_ROOT="$(pwd)/rpmbuild"
@@ -101,6 +101,7 @@ cp packaging/rpm_dist/SPECS/iapRemote.spec "$RPMBUILD_ROOT/SPECS/"
 rpmbuild -bb \
     --define "_topdir $RPMBUILD_ROOT" \
     --define "project_root $PROJECT_ROOT" \
+    --define "PKG_VERSION $VERSION" \
     "$RPMBUILD_ROOT/SPECS/iapRemote.spec"
 
 # Final placement
