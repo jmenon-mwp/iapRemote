@@ -109,9 +109,58 @@ jobs:
           path: output/*.rpm
           if-no-files-found: error
 
+  build-macos-intel:
+    name: Build macOS (Intel)
+    runs-on: macos-13 # Intel Mac
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build macOS DMG
+        run: |
+          export PKG_VERSION=${{ steps.get_version.outputs.version }}
+          bash packaging/macos_dist/create_dmg.sh
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-intel-dmg
+          path: output/*.dmg
+
+  build-macos-arm:
+    name: Build macOS (Apple Silicon)
+    runs-on: macos-14 # ARM64 Mac (M1)
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build macOS DMG
+        run: |
+          export PKG_VERSION=${{ steps.get_version.outputs.version }}
+          bash packaging/macos_dist/create_dmg.sh
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm-dmg
+          path: output/*.dmg
+
+
   create-release:
     name: Create GitHub Release
-    needs: [build-debian, build-ubuntu, build-rocky]
+    needs: [build-debian, build-ubuntu, build-rocky, build-macos-intel, build-macos-arm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -140,10 +189,16 @@ jobs:
           files: |
             artifacts/**/*.deb
             artifacts/**/*.rpm
+            artifacts/**/*.dmg
           body: |
             ## iapRemote ${{ steps.get_version.outputs.version }}
 
             ### Installation
+
+            #### macOS
+            - **Intel Macs (x86_64)**: Download `*_macos_x86_64.dmg`
+            - **Apple Silicon (M1/M2/M3)**: Download `*_macos_arm64.dmg`
+            Drag `iapRemote.app` to your Applications folder.
 
             #### Debian/Ubuntu
             Download the appropriate `.deb` file for your distribution and install with:
@@ -159,6 +214,7 @@ jobs:
             ```
 
             ### Available Packages
+            - macOS Universal (Intel & Apple Silicon)
             - Debian (built on Debian 11)
             - Ubuntu (built on Ubuntu 20.04)
             - Rocky Linux/RHEL (built on Rocky 9)
