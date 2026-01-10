@@ -38,7 +38,9 @@ if [ "$BUILD_SKIP_DEPS" != "1" ]; then
             unzip \
             tar \
             rpm-build \
-            perl-generators
+            perl-generators \
+            kernel-headers \
+            perl-IPC-Cmd
 
         # Install GUI and Dev libraries (some might be in EPEL/CRB)
         dnf install -y --allowerasing \
