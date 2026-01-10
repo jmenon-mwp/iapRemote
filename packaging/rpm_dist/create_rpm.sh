@@ -40,7 +40,11 @@ if [ "$BUILD_SKIP_DEPS" != "1" ]; then
             rpm-build \
             perl-generators \
             kernel-headers \
-            perl-IPC-Cmd
+            perl-IPC-Cmd \
+            perl-FindBin \
+            perl-File-Compare \
+            perl-File-Copy \
+            perl-Text-Template
 
         # Install GUI and Dev libraries (some might be in EPEL/CRB)
         dnf install -y --allowerasing \
