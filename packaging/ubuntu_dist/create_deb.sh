@@ -34,7 +34,10 @@ if [ "$BUILD_SKIP_DEPS" != "1" ]; then
         zip \
         unzip \
         tar \
-        dpkg-dev
+        dpkg-dev \
+        autoconf \
+        libtool \
+        libtool-bin
 fi
 
 # 2. vcpkg Setup
