@@ -54,9 +54,21 @@ if [ ! -f "$VCPKG_ROOT/vcpkg" ]; then
     "$VCPKG_ROOT/bootstrap-vcpkg.sh"
 fi
 
-echo "Ensuring google-cloud-cpp[core,iap] is installed in vcpkg (Classic Mode)..."
-# We ensure classic mode by passing --classic to avoid any manifest detection
-"$VCPKG_ROOT/vcpkg" install "google-cloud-cpp[core,iap]" --classic
+# Define custom triplet for release optimization
+mkdir -p "$VCPKG_ROOT/triplets/community"
+cat > "$VCPKG_ROOT/triplets/community/x64-linux-release.cmake" <<EOF
+set(VCPKG_TARGET_ARCHITECTURE x64)
+set(VCPKG_CRT_LINKAGE dynamic)
+set(VCPKG_LIBRARY_LINKAGE static)
+set(VCPKG_BUILD_TYPE release)
+EOF
+
+echo "Ensuring google-cloud-cpp[core,iap] is installed (Release Only)..."
+"$VCPKG_ROOT/vcpkg" install "google-cloud-cpp[core,iap]" \
+    --triplet=x64-linux-release \
+    --overlay-triplets="$VCPKG_ROOT/triplets/community" \
+    --clean-after-build \
+    --classic
 
 # 3. Source Code Setup
 echo "[3/5] Preparing source code..."
@@ -81,6 +93,8 @@ mkdir -p "$BUILD_DIR"
 # Note: We use the vcpkg toolchain to find our static libraries
 cmake -B "$BUILD_DIR" -S . \
     -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+    -DVCPKG_TARGET_TRIPLET=x64-linux-release \
+    -DVCPKG_OVERLAY_TRIPLETS="$VCPKG_ROOT/triplets/community" \
     -DSTATIC_BUILD=ON \
     -DCMAKE_BUILD_TYPE=Release
 
