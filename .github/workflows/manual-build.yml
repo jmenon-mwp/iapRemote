@@ -18,8 +18,6 @@ on:
           - rocky
           - macos-intel
           - macos-arm
-          - macos-intel
-          - macos-arm
 
 env:
   VCPKG_CACHE_DIR: /tmp/vcpkg_cache
