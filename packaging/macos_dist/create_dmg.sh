@@ -39,17 +39,27 @@ if [ ! -f "$VCPKG_ROOT/vcpkg" ]; then
   git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
   "$VCPKG_ROOT/bootstrap-vcpkg.sh"
 fi
-# Create custom release triplet for macOS Intel
+
+# Determine triplet architecture
+if [ "$ARCH" == "arm64" ]; then
+    VCPKG_ARCH="arm64"
+else
+    VCPKG_ARCH="x64"
+fi
+TRIPLET="${VCPKG_ARCH}-osx-release"
+
+echo "Creating custom release triplet for macOS: $TRIPLET"
 mkdir -p "$VCPKG_ROOT/triplets/community"
-cat > "$VCPKG_ROOT/triplets/community/x64-osx-release.cmake" <<EOF
-set(VCPKG_TARGET_ARCHITECTURE x64)
+cat > "$VCPKG_ROOT/triplets/community/${TRIPLET}.cmake" <<EOF
+set(VCPKG_TARGET_ARCHITECTURE ${VCPKG_ARCH})
 set(VCPKG_CRT_LINKAGE dynamic)
 set(VCPKG_LIBRARY_LINKAGE static)
 set(VCPKG_BUILD_TYPE release)
+set(VCPKG_CMAKE_SYSTEM_NAME Darwin)
 EOF
 
 "$VCPKG_ROOT/vcpkg" install "google-cloud-cpp[core,iap]" \
-    --triplet=x64-osx-release \
+    --triplet="$TRIPLET" \
     --overlay-triplets="$VCPKG_ROOT/triplets/community" \
     --clean-after-build \
     --classic
@@ -63,6 +73,9 @@ mkdir -p "$BUILD_DIR"
 OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)
 
 cmake -B "$BUILD_DIR" -S . \
+    -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+    -DVCPKG_TARGET_TRIPLET="$TRIPLET" \
+    -DVCPKG_OVERLAY_TRIPLETS="$VCPKG_ROOT/triplets/community" \
     -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="$(brew --prefix)"

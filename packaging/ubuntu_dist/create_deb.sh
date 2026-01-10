@@ -42,12 +42,9 @@ fi
 
 # 2. vcpkg Setup
 echo "[2/5] Setting up vcpkg..."
-# If VCPKG_ROOT doesn't have a vcpkg binary, we need to setup
 if [ ! -f "$VCPKG_ROOT/vcpkg" ]; then
     if [ ! -d "$VCPKG_ROOT/.git" ]; then
-        echo "vcpkg not found at $VCPKG_ROOT. Cloning fresh..."
-        # If it's a mounted empty dir, git clone might complain if we don't handle it
-        # But usually git clone into an empty dir is fine.
+        echo "vcpkg not found at $VCPKG_ROOT. Cloning..."
         git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
     fi
     echo "Bootstrapping vcpkg..."
@@ -55,7 +52,6 @@ if [ ! -f "$VCPKG_ROOT/vcpkg" ]; then
 fi
 
 # Define custom triplet for release optimization
-# (Static linkage, dynamic CRT, release build type)
 mkdir -p "$VCPKG_ROOT/triplets/community"
 cat > "$VCPKG_ROOT/triplets/community/x64-linux-release.cmake" <<EOF
 set(VCPKG_TARGET_ARCHITECTURE x64)
