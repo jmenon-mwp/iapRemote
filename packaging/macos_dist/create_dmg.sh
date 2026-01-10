@@ -30,7 +30,29 @@ fi
 
 # We use Homebrew for speed on macOS CI, instead of compiling boost/grpc/etc via vcpkg
 brew update
-brew install cmake pkg-config gtkmm3 vte3 nlohmann-json openssl@3 google-cloud-cpp dylibbundler create-dmg
+# Install dependencies via Homebrew (excluding google-cloud-cpp which will be built via vcpkg)
+brew install cmake pkg-config gtkmm3 vte3 nlohmann-json openssl@3 dylibbundler create-dmg
+
+# Install vcpkg and google-cloud-cpp via vcpkg (release build)
+VCPKG_ROOT="$HOME/vcpkg"
+if [ ! -f "$VCPKG_ROOT/vcpkg" ]; then
+  git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+  "$VCPKG_ROOT/bootstrap-vcpkg.sh"
+fi
+# Create custom release triplet for macOS Intel
+mkdir -p "$VCPKG_ROOT/triplets/community"
+cat > "$VCPKG_ROOT/triplets/community/x64-osx-release.cmake" <<EOF
+set(VCPKG_TARGET_ARCHITECTURE x64)
+set(VCPKG_CRT_LINKAGE dynamic)
+set(VCPKG_LIBRARY_LINKAGE static)
+set(VCPKG_BUILD_TYPE release)
+EOF
+
+"$VCPKG_ROOT/vcpkg" install "google-cloud-cpp[core,iap]" \
+    --triplet=x64-osx-release \
+    --overlay-triplets="$VCPKG_ROOT/triplets/community" \
+    --clean-after-build \
+    --classic
 
 # 2. Compilation
 echo "[2/4] Compiling..."
