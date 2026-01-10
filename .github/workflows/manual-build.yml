@@ -1,0 +1,103 @@
+name: Manual Package Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., v1.0.0)'
+        required: true
+        type: string
+      target_os:
+        description: 'Target OS to build'
+        required: true
+        type: choice
+        options:
+          - all
+          - debian
+          - ubuntu
+          - rocky
+
+env:
+  VCPKG_CACHE_DIR: /tmp/vcpkg_cache
+
+jobs:
+  build-debian:
+    name: Build Debian Package
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.target_os == 'all' || github.event.inputs.target_os == 'debian' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create vcpkg cache directory
+        run: |
+          mkdir -p ${{ env.VCPKG_CACHE_DIR }}
+
+      - name: Build Debian package
+        run: |
+          bash packaging/build_in_container.sh debian 11 ${{ github.event.inputs.version }}
+
+      - name: Upload Debian package
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian-package
+          path: output/*.deb
+          if-no-files-found: error
+
+  build-ubuntu:
+    name: Build Ubuntu Package
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.target_os == 'all' || github.event.inputs.target_os == 'ubuntu' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create vcpkg cache directory
+        run: |
+          mkdir -p ${{ env.VCPKG_CACHE_DIR }}
+
+      - name: Build Ubuntu package
+        run: |
+          bash packaging/build_in_container.sh ubuntu 20.04 ${{ github.event.inputs.version }}
+
+      - name: Upload Ubuntu package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu-package
+          path: output/*.deb
+          if-no-files-found: error
+
+  build-rocky:
+    name: Build Rocky Linux Package
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.target_os == 'all' || github.event.inputs.target_os == 'rocky' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create vcpkg cache directory
+        run: |
+          mkdir -p ${{ env.VCPKG_CACHE_DIR }}
+
+      - name: Build Rocky Linux package
+        run: |
+          bash packaging/build_in_container.sh rocky 9 ${{ github.event.inputs.version }}
+
+      - name: Upload Rocky Linux package
+        uses: actions/upload-artifact@v4
+        with:
+          name: rocky-package
+          path: output/*.rpm
+          if-no-files-found: error

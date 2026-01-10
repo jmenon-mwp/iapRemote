@@ -14,17 +14,17 @@ PKG_VERSION=$3         # e.g., 1.0.1 (optional)
 if [ "$TARGET_OS" == "debian" ]; then
     IMAGE_TAG=${TARGET_VER:-12}
     IMAGE="debian:$IMAGE_TAG"
-    DISTRO_ID="debian$IMAGE_TAG"
+    DISTRO_ID="debian"
     PKG_SCRIPT="packaging/debian_dist/create_deb.sh"
 elif [ "$TARGET_OS" == "ubuntu" ]; then
     IMAGE_TAG=${TARGET_VER:-22.04}
     IMAGE="ubuntu:$IMAGE_TAG"
-    DISTRO_ID="ubuntu$IMAGE_TAG"
+    DISTRO_ID="ubuntu"
     PKG_SCRIPT="packaging/ubuntu_dist/create_deb.sh"
 elif [ "$TARGET_OS" == "rocky" ]; then
     IMAGE_TAG=${TARGET_VER:-9}
     IMAGE="rockylinux:$IMAGE_TAG"
-    DISTRO_ID="rhel$IMAGE_TAG"
+    DISTRO_ID="rhel"
     PKG_SCRIPT="packaging/rpm_dist/create_rpm.sh"
 else
     echo "Error: Unsupported TARGET_OS '$TARGET_OS'. Use debian, ubuntu, or rocky."
