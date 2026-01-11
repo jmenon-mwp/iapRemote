@@ -1,6 +1,8 @@
 #pragma once
 #include <gtkmm.h>
+#ifndef IS_MACOS
 #include <gtkmm/socket.h>
+#endif
 #include <vte/vte.h>
 #include <string>
 #include <vector>

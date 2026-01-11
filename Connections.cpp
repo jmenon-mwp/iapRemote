@@ -1121,17 +1121,27 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
         ::close(sock);
 
         if (connected) {
-            if (m_debug) std::cerr << "DEBUG: Port " << local_port << " is listening. Proceeding to add socket." << std::endl;
+            if (m_debug) std::cerr << "DEBUG: Port " << local_port << " is listening. Proceeding to add RDP." << std::endl;
 
             session_container.remove(*loading_box);
 
+#ifndef IS_MACOS
             Gtk::Socket* socket_widget = Gtk::manage(new Gtk::Socket());
             session_container.pack_start(*socket_widget, Gtk::PACK_EXPAND_WIDGET);
             session_container.show_all();
 
             auto on_realize_logic = [&session_container, local_port, socket_widget, tunnel_pid, exit_cb_shared, username, password]() {
                 uint64_t xid = socket_widget->get_id();
-                if (m_debug) std::cerr << "DEBUG: Socket realized. XID: " << xid << ". Launching xfreerdp." << std::endl;
+#else
+            auto info_label = Gtk::manage(new Gtk::Label("RDP Session opened in separate window.\nClose the RDP window to end the session."));
+            info_label->set_line_wrap();
+            session_container.pack_start(*info_label, Gtk::PACK_EXPAND_WIDGET);
+            session_container.show_all();
+
+            auto on_realize_logic = [&session_container, local_port, tunnel_pid, exit_cb_shared, username, password]() {
+                uint64_t xid = 0;
+#endif
+                if (m_debug) std::cerr << "DEBUG: RDP logic starting. XID: " << xid << ". Launching xfreerdp." << std::endl;
 
 
                 Glib::signal_timeout().connect_once([&session_container, local_port, xid, tunnel_pid, exit_cb_shared, username, password]() {
@@ -1140,7 +1150,9 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
                     std::vector<std::string> rdp_argv = {
                         "xfreerdp",
                         "/v:127.0.0.1:" + std::to_string(local_port),
+#ifndef IS_MACOS
                         "/parent-window:" + std::to_string(xid),
+#endif
                         "/cert-ignore",
                         "/dynamic-resolution",
                         "+home-drive",
@@ -1194,16 +1206,17 @@ void ConnectionManager::open_rdp_session(Gtk::Box& session_container, const Conn
                 }, 1000);
             };
 
+#ifndef IS_MACOS
             if (socket_widget->get_realized()) {
                 on_realize_logic();
             } else {
                 socket_widget->signal_realize().connect(on_realize_logic);
             }
-
-            return false;
+#else
+            on_realize_logic();
+#endif
         }
-
-        return true;
+        return !connected;
     }, 500);
 }
 

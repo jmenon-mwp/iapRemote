@@ -75,7 +75,6 @@ OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)
 cmake -B "$BUILD_DIR" -S . \
     -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
     -DVCPKG_TARGET_TRIPLET="$TRIPLET" \
-    -DVCPKG_OVERLAY_TRIPLETS="$VCPKG_ROOT/triplets/community" \
     -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="$(brew --prefix)"

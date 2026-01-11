@@ -37,7 +37,9 @@ if [ "$BUILD_SKIP_DEPS" != "1" ]; then
         dpkg-dev \
         autoconf \
         libtool \
-        libtool-bin
+        libtool-bin \
+        libipc-cmd-perl \
+        libtext-template-perl
 fi
 
 # 2. vcpkg Setup
