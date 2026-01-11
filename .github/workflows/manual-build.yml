@@ -96,7 +96,7 @@ jobs:
   build-rocky:
     name: Build Rocky Linux Package
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.target_os == 'all' || github.event.inputs.target_os == 'rocky' }}
+    if: ${{ github.event.inputs.target_os == 'rocky' }}
 
     steps:
       - name: Checkout code
