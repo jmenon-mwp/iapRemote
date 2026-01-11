@@ -7,6 +7,8 @@ set -e
 # Configuration
 PKG_NAME="iapremote"
 VERSION="${PKG_VERSION:-1.0.0}"
+# Sanitize version: Debian versions must start with a digit (strip leading 'v' if present)
+VERSION="${VERSION#v}"
 ARCH="amd64"
 DISTRO_ID=${DISTRO_ID:-ubuntu}
 DEB_FILE="${PKG_NAME}_${VERSION}_${DISTRO_ID}_${ARCH}.deb"

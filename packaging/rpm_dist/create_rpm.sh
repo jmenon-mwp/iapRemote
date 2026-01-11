@@ -7,6 +7,8 @@ set -e
 # Configuration
 PKG_NAME="iapRemote"
 VERSION="${PKG_VERSION:-1.0.0}"
+# Sanitize version: RPM versions usually shouldn't start with 'v'
+VERSION="${VERSION#v}"
 ARCH="x86_64"
 DISTRO_ID=${DISTRO_ID:-rhel9}
 RPMBUILD_ROOT="$(pwd)/rpmbuild"
