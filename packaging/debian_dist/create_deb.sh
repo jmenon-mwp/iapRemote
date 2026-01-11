@@ -40,7 +40,7 @@ if [ "$BUILD_SKIP_DEPS" != "1" ]; then
         autoconf \
         libtool \
         libtool-bin \
-        libipc-cmd-perl \
+        perl \
         libtext-template-perl
 fi
 
