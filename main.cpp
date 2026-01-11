@@ -1204,7 +1204,7 @@ public:
         Gtk::AboutDialog about;
         about.set_transient_for(*this);
         about.set_program_name("iapRemote");
-        about.set_version("1.0.0");
+        about.set_version(APP_VERSION);
         about.set_copyright("Copyright © 2026");
         about.set_comments("Unified RDP and SSH over IAP (Identity-Aware Proxy) client for Google Cloud Platform");
         about.set_website("https://github.com/jmenon-mwp/iapRemote");

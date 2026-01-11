@@ -76,6 +76,7 @@ cmake -B "$BUILD_DIR" -S . \
     -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
     -DVCPKG_TARGET_TRIPLET="$TRIPLET" \
     -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR" \
+    -DAPP_VERSION="${VERSION}" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="$(brew --prefix)"
 

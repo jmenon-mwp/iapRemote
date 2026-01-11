@@ -109,6 +109,7 @@ cmake -B "$BUILD_DIR" -S . \
     -DVCPKG_TARGET_TRIPLET=x64-linux-release \
     -DVCPKG_OVERLAY_TRIPLETS="$VCPKG_ROOT/triplets/community" \
     -DSTATIC_BUILD=ON \
+    -DAPP_VERSION="${VERSION}" \
     -DCMAKE_BUILD_TYPE=Release
 
 cmake --build "$BUILD_DIR" -j$(nproc)

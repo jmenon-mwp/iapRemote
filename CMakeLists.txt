@@ -4,6 +4,12 @@ project(iapRemote)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Version definition for the about box
+if(NOT APP_VERSION)
+    set(APP_VERSION "1.0.0")
+endif()
+add_definitions(-DAPP_VERSION="${APP_VERSION}")
+
 # Configure Search Paths for vcpkg if on Linux and not using a toolchain
 if(UNIX AND NOT APPLE AND NOT CMAKE_TOOLCHAIN_FILE)
     if(EXISTS "/opt/vcpkg/installed/x64-linux")
