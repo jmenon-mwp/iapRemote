@@ -5,22 +5,39 @@ set -e
 # Configuration
 PKG_NAME="iapRemote"
 VERSION="${PKG_VERSION:-1.0.0}"
+# 1. Architecture & Dependency Setup
+UNIVERSAL_BUILD="${UNIVERSAL_BUILD:-true}" # Default to universal for release
 ARCH=$(uname -m)
-OUTPUT_DMG="${PKG_NAME}_${VERSION}_macos_${ARCH}.dmg"
+OUTPUT_DMG="${PKG_NAME}_${VERSION}_macos_${ARCH}.dmg" # Keep this for now, might need adjustment for universal
 BUILD_DIR="build_macos"
 STAGE_DIR="macos_stage"
 APP_BUNDLE="${STAGE_DIR}/${PKG_NAME}.app"
 
 echo "=== iapRemote macOS Build ==="
-echo "Target: macOS ${ARCH}"
 
-# 1. Install Dependencies
-echo "[1/4] Installing dependencies..."
+if [ "$UNIVERSAL_BUILD" == "true" ]; then
+    echo "[1/4] Configuring for Universal Binary (arm64 + x86_64)..."
+    VCPKG_TRIPLET_ARCHS="arm64;x86_64"
+    TRIPLET="universal-osx-release"
+    CMAKE_ARCH_FLAGS="-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+    OUTPUT_DMG="${PKG_NAME}_${VERSION}_macos_universal.dmg" # Update DMG name for universal
+else
+    echo "[1/4] Configuring for native Binary ($ARCH)..."
+    if [ "$ARCH" == "arm64" ]; then
+        VCPKG_TRIPLET_ARCHS="arm64"
+    else
+        VCPKG_TRIPLET_ARCHS="x64"
+    fi
+    TRIPLET="${VCPKG_TRIPLET_ARCHS}-osx-release"
+    CMAKE_ARCH_FLAGS=""
+    OUTPUT_DMG="${PKG_NAME}_${VERSION}_macos_${ARCH}.dmg" # Ensure DMG name is correct for native
+fi
+
 if ! command -v brew &> /dev/null; then
     echo "Homebrew not found. Installing..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    
-    # Add brew to PATH for the current session (standard locations for Intel and ARM)
+
+    # Add brew to PATH
     if [ -d "/opt/homebrew/bin" ]; then
         eval "$(/opt/homebrew/bin/brew shellenv)"
     elif [ -d "/usr/local/bin" ]; then
@@ -28,34 +45,29 @@ if ! command -v brew &> /dev/null; then
     fi
 fi
 
-# We use Homebrew for speed on macOS CI, instead of compiling boost/grpc/etc via vcpkg
+# We use Homebrew for high-level UI libs (gtkmm, vte)
+# NOTE: Homebrew usually installs architecture-specific binaries.
+# For true universal builds, these dependencies may need to be built from source or via vcpkg.
+echo "Updating Homebrew and installing dependencies..."
 brew update
-# Install dependencies via Homebrew (excluding google-cloud-cpp which will be built via vcpkg)
 brew install cmake pkg-config gtkmm3 vte3 nlohmann-json openssl@3 dylibbundler create-dmg
 
-# Install vcpkg and google-cloud-cpp via vcpkg (release build)
+# Install vcpkg and google-cloud-cpp
 VCPKG_ROOT="$HOME/vcpkg"
 if [ ! -f "$VCPKG_ROOT/vcpkg" ]; then
   git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
   "$VCPKG_ROOT/bootstrap-vcpkg.sh"
 fi
 
-# Determine triplet architecture
-if [ "$ARCH" == "arm64" ]; then
-    VCPKG_ARCH="arm64"
-else
-    VCPKG_ARCH="x64"
-fi
-TRIPLET="${VCPKG_ARCH}-osx-release"
-
-echo "Creating custom release triplet for macOS: $TRIPLET"
+echo "Creating custom triplet: $TRIPLET"
 mkdir -p "$VCPKG_ROOT/triplets/community"
 cat > "$VCPKG_ROOT/triplets/community/${TRIPLET}.cmake" <<EOF
-set(VCPKG_TARGET_ARCHITECTURE ${VCPKG_ARCH})
+set(VCPKG_TARGET_ARCHITECTURE x64) # Base architecture
 set(VCPKG_CRT_LINKAGE dynamic)
 set(VCPKG_LIBRARY_LINKAGE static)
 set(VCPKG_BUILD_TYPE release)
 set(VCPKG_CMAKE_SYSTEM_NAME Darwin)
+set(VCPKG_OSX_ARCHITECTURES "${VCPKG_TRIPLET_ARCHS}")
 EOF
 
 "$VCPKG_ROOT/vcpkg" install "google-cloud-cpp[core,iap]" \
@@ -78,7 +90,8 @@ cmake -B "$BUILD_DIR" -S . \
     -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR" \
     -DAPP_VERSION="${VERSION}" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_PREFIX_PATH="$(brew --prefix)"
+    -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
+    ${CMAKE_ARCH_FLAGS}
 
 cmake --build "$BUILD_DIR" -j$(sysctl -n hw.ncpu)
 
@@ -95,7 +108,7 @@ cp "$BUILD_DIR/iapRemote" "$APP_BUNDLE/Contents/MacOS/"
 cp styles.css "$APP_BUNDLE/Contents/Resources/"
 # Convert SVG icon to ICNS if possible, or just copy for now
 # (Proper ICNS creation requires 'iconutil' and an .iconset directory)
-cp icon.svg "$APP_BUNDLE/Contents/Resources/icon.svg" 
+cp icon.svg "$APP_BUNDLE/Contents/Resources/icon.svg"
 
 # Create Info.plist
 cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF

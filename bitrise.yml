@@ -1,0 +1,49 @@
+format_version: "13"
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+
+project_type: macos
+
+app:
+  envs:
+  - BITRISE_PROJECT_PATH: iapRemote.xcodeproj # Not actually used but good for metadata
+  - BITRISE_SCHEME: iapRemote
+
+workflows:
+  build_macos:
+    description: |
+      Builds the iapRemote macOS application as a Universal Binary (arm64 + x86_64)
+      and packages it into a DMG.
+    steps:
+    - activate-ssh-key@4:
+    - git-clone@6: {}
+    - cache-pull@2: {}
+    - script@1:
+        title: Build DMG
+        inputs:
+        - content: |
+            #!/bin/bash
+            set -e
+
+            # Make script executable
+            chmod +x packaging/macos_dist/create_dmg.sh
+
+            # Set version from tag if available, otherwise use default
+            if [ ! -z "$BITRISE_GIT_TAG" ]; then
+              export PKG_VERSION="${BITRISE_GIT_TAG#v}"
+            fi
+
+            # Run the build script
+            # UNIVERSAL_BUILD is true by default in the script,
+            # but we explicitly set it here for clarity.
+            export UNIVERSAL_BUILD="true"
+            ./packaging/macos_dist/create_dmg.sh
+    - cache-push@2:
+        title: Push Cache
+        inputs:
+        - cache_paths: |-
+            $HOME/vcpkg -> $HOME/vcpkg/vcpkg
+            $HOME/Library/Caches/Homebrew
+    - deploy-to-bitrise-io@2:
+        inputs:
+        - notify_user_groups: none
+        - deploy_path: output
