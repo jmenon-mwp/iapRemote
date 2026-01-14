@@ -151,17 +151,26 @@ echo "[4/4] Creating DMG..."
 mkdir -p output
 rm -f "output/$OUTPUT_DMG"
 
-# Using create-dmg utility (brew install create-dmg)
-create-dmg \
-  --volname "iapRemote Installer" \
-  --volicon "icon.svg" \
-  --window-pos 200 120 \
-  --window-size 800 400 \
-  --icon-size 100 \
-  --icon "iapRemote.app" 200 190 \
-  --hide-extension "iapRemote.app" \
-  --app-drop-link 600 185 \
-  "output/$OUTPUT_DMG" \
-  "$APP_BUNDLE"
+# We use a temporary directory to structure the DMG
+DMG_TEMP_DIR="dmg_temp"
+rm -rf "$DMG_TEMP_DIR"
+mkdir -p "$DMG_TEMP_DIR"
+
+# Copy the app bundle
+cp -R "$APP_BUNDLE" "$DMG_TEMP_DIR/"
+
+# Create a symlink to Applications
+ln -s /Applications "$DMG_TEMP_DIR/Applications"
+
+# Create the DMG using hdiutil (standard macOS tool, works in headless CI)
+echo "Running hdiutil create..."
+hdiutil create \
+  -volname "${PKG_NAME} Installer" \
+  -srcfolder "$DMG_TEMP_DIR" \
+  -ov \
+  -format UDZO \
+  "output/$OUTPUT_DMG"
+
+rm -rf "$DMG_TEMP_DIR"
 
 echo "Success! Created output/$OUTPUT_DMG"
