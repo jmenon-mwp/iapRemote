@@ -140,8 +140,8 @@ EOF
 
 # Bundle Libraries (dylibbundler)
 # This walks the binary and copies referenced dylibs into the bundle
-# Note: This might require sudo permissions in some setups, but usually fine in CI
 echo "Bundling dynamic libraries..."
+mkdir -p "$APP_BUNDLE/Contents/Libs"
 dylibbundler -of -b -x "$APP_BUNDLE/Contents/MacOS/iapRemote" \
     -d "$APP_BUNDLE/Contents/Libs" \
     -p "@executable_path/../Libs/"
