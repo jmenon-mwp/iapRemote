@@ -12,7 +12,6 @@ workflows:
       Builds the iapRemote macOS application as a Universal Binary (arm64 + x86_64)
       and packages it into a DMG.
     steps:
-    - activate-ssh-key@4:
     - git-clone@8.4: {}
     - cache-pull@2: {}
     - script@1:
@@ -45,3 +44,6 @@ workflows:
         inputs:
         - notify_user_groups: none
         - deploy_path: output
+    meta:
+      bitrise.io:
+        machine_type_id: g2.mac.medium
