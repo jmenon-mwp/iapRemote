@@ -62,7 +62,7 @@ fi
 echo "Creating custom triplet: $TRIPLET"
 mkdir -p "$VCPKG_ROOT/triplets/community"
 cat > "$VCPKG_ROOT/triplets/community/${TRIPLET}.cmake" <<EOF
-set(VCPKG_TARGET_ARCHITECTURE x64) # Base architecture
+set(VCPKG_TARGET_ARCHITECTURE $VCPKG_TRIPLET_ARCHS)
 set(VCPKG_CRT_LINKAGE dynamic)
 set(VCPKG_LIBRARY_LINKAGE static)
 set(VCPKG_BUILD_TYPE release)

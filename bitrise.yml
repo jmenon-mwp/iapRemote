@@ -32,7 +32,7 @@ workflows:
             # Run the build script
             # UNIVERSAL_BUILD is true by default in the script,
             # but we explicitly set it here for clarity.
-            export UNIVERSAL_BUILD="true"
+            export UNIVERSAL_BUILD="false"
             ./packaging/macos_dist/create_dmg.sh
     - cache-push@2:
         title: Push Cache
